@@ -1,29 +1,67 @@
 {
   "expo": {
-    "name": "MoodBeats_fixed",
-    "slug": "MoodBeats_fixed",
+    "name": "MoodBeats",
+    "slug": "moodbeats",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#6200ea"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "scheme": "moodbeats",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Allow MoodBeats to use Bluetooth to connect to your Fitbit device",
+        "NSBluetoothPeripheralUsageDescription": "Allow MoodBeats to use Bluetooth to connect to your Fitbit device",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      },
+      "bundleIdentifier": "com.anonymous.moodbeats"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#6200ea"
       },
-      "edgeToEdgeEnabled": true
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.anonymous.moodbeats",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
+          "data": {
+            "scheme": "moodbeats"
+          }
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-sensors"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "moodbeats"
+      }
     }
   }
 }

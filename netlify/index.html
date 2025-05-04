@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoodBeats - Authentication</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+            background-color: #6200ea;
+            color: white;
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        p {
+            margin-bottom: 20px;
+            font-size: 18px;
+            max-width: 600px;
+        }
+        .loader {
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 5px solid white;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 30px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .button {
+            background-color: white;
+            color: #6200ea;
+            padding: 12px 24px;
+            border-radius: 24px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 10px;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .button:hover {
+            background-color: #f5f5f5;
+        }
+        .button-secondary {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+        .button-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+        .debug-info {
+            margin-top: 20px;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            max-width: 80%;
+            word-break: break-all;
+        }
+        .token-container {
+            display: none;
+            margin-top: 30px;
+            width: 100%;
+            max-width: 600px;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            margin-bottom: 10px;
+            font-family: monospace;
+            resize: none;
+        }
+        .success-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        .buttons-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+        }
+        .copy-success {
+            color: #4caf50;
+            margin-top: 10px;
+            font-weight: bold;
+            display: none;
+        }
+        .method-button {
+            background-color: transparent;
+            color: white;
+            border: 1px solid white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .method-button.active {
+            background-color: white;
+            color: #6200ea;
+        }
+        .redirect-methods {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .app-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            background-color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            color: #6200ea;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-icon">MB</div>
+    <h1>MoodBeats</h1>
+    <div class="loader" id="loader"></div>
+    <p id="status-message">Fitbit authentication successful! Redirecting back to the app...</p>
+    
+    <div class="redirect-methods" id="redirect-methods">
+        <button class="method-button active" id="method-auto">Automatic</button>
+        <button class="method-button" id="method-deeplink">Deep Link</button>
+        <button class="method-button" id="method-scheme">URL Scheme</button>
+        <button class="method-button" id="method-universal">Universal Link</button>
+    </div>
+    
+    <div class="buttons-container" id="buttons-container">
+        <a href="#" id="deep-link-button" class="button">Return to App</a>
+        <button id="show-token-button" class="button button-secondary">Show Token</button>
+    </div>
+    
+    <div class="token-container" id="token-container">
+        <p>Copy this access token to manually enter in the app:</p>
+        <textarea id="token-text" readonly></textarea>
+        <button id="copy-token-button" class="button">Copy Token</button>
+        <div class="copy-success" id="copy-success">✓ Copied to clipboard!</div>
+    </div>
+    
+    <div class="debug-info" id="debug-info"></div>
+
+    <script>
+        // Track redirect attempts to avoid infinite loops
+        let redirectAttempts = 0;
+        const MAX_REDIRECT_ATTEMPTS = 4;
+        
+        // Store token data to use across methods
+        let tokenData = {
+            accessToken: '',
+            userId: '',
+            expiresIn: '',
+            scope: ''
+        };
+        
+        // DOM elements
+        const loader = document.getElementById('loader');
+        const statusMessage = document.getElementById('status-message');
+        const deepLinkButton = document.getElementById('deep-link-button');
+        const showTokenButton = document.getElementById('show-token-button');
+        const tokenContainer = document.getElementById('token-container');
+        const tokenText = document.getElementById('token-text');
+        const copyTokenButton = document.getElementById('copy-token-button');
+        const copySuccess = document.getElementById('copy-success');
+        const debugInfo = document.getElementById('debug-info');
+        const methodButtons = document.querySelectorAll('.method-button');
+        
+        // Method selection handling
+        let currentMethod = 'auto';
+        methodButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                methodButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentMethod = this.id.replace('method-', '');
+                
+                // If we have token data, try redirecting with the new method
+                if (tokenData.accessToken) {
+                    redirectToApp(currentMethod);
+                }
+            });
+        });
+        
+        // Show/hide token container
+        showTokenButton.addEventListener('click', function() {
+            if (tokenContainer.style.display === 'block') {
+                tokenContainer.style.display = 'none';
+                showTokenButton.textContent = 'Show Token';
+            } else {
+                tokenContainer.style.display = 'block';
+                showTokenButton.textContent = 'Hide Token';
+            }
+        });
+        
+        // Copy token to clipboard
+        copyTokenButton.addEventListener('click', function() {
+            tokenText.select();
+            document.execCommand('copy');
+            
+            copySuccess.style.display = 'block';
+            setTimeout(() => {
+                copySuccess.style.display = 'none';
+            }, 3000);
+        });
+        
+        // Extract and parse token data from URL
+        function extractTokenData() {
+            const url = window.location.href;
+            let params = {};
+            
+            // Add debug info
+            debugInfo.textContent = `URL: ${url.substring(0, 100)}...`;
+            
+            // Check if URL contains token info - in various formats
+            if (url.includes('#access_token=') || url.includes('?access_token=') || url.includes('&access_token=')) {
+                debugInfo.textContent += '\nFound token in URL';
+                
+                // Try multiple formats
+                let paramString = '';
+                
+                // Check for hash fragment format (standard OAuth)
+                if (url.includes('#')) {
+                    paramString = url.split('#')[1];
+                    debugInfo.textContent += '\nHash fragment format detected';
+                } 
+                // Check for query parameter format
+                else if (url.includes('?')) {
+                    paramString = url.split('?')[1];
+                    debugInfo.textContent += '\nQuery parameter format detected';
+                }
+                
+                // Parse parameters from the parameter string
+                if (paramString) {
+                    paramString.split('&').forEach(item => {
+                        const parts = item.split('=');
+                        if (parts.length === 2) {
+                            params[parts[0]] = decodeURIComponent(parts[1]);
+                        }
+                    });
+                } else {
+                    // If we couldn't identify a clear parameter string, try regex
+                    debugInfo.textContent += '\nUsing regex to extract token';
+                    
+                    // Extract access_token
+                    const tokenMatch = url.match(/[#?&]access_token=([^&]+)/);
+                    if (tokenMatch && tokenMatch[1]) {
+                        params['access_token'] = decodeURIComponent(tokenMatch[1]);
+                        
+                        // Extract other parameters if present
+                        const expiresMatch = url.match(/[#?&]expires_in=([^&]+)/);
+                        if (expiresMatch && expiresMatch[1]) {
+                            params['expires_in'] = decodeURIComponent(expiresMatch[1]);
+                        }
+                        
+                        const userIdMatch = url.match(/[#?&]user_id=([^&]+)/);
+                        if (userIdMatch && userIdMatch[1]) {
+                            params['user_id'] = decodeURIComponent(userIdMatch[1]);
+                        }
+                        
+                        const scopeMatch = url.match(/[#?&]scope=([^&]+)/);
+                        if (scopeMatch && scopeMatch[1]) {
+                            params['scope'] = decodeURIComponent(scopeMatch[1]);
+                        }
+                    }
+                }
+                
+                // Store token data
+                if (params.access_token) {
+                    tokenData = {
+                        accessToken: params.access_token,
+                        userId: params.user_id || '',
+                        expiresIn: params.expires_in || '31536000',
+                        scope: params.scope || ''
+                    };
+                    
+                    // Set token in textarea for manual copy
+                    tokenText.value = tokenData.accessToken;
+                    
+                    // Log token info (partially masked)
+                    const tokenPrefix = tokenData.accessToken.substring(0, 5);
+                    debugInfo.textContent += `\nToken found (starts with: ${tokenPrefix}...)`;
+                    debugInfo.textContent += `\nExpires in: ${tokenData.expiresIn}s`;
+                    if (tokenData.userId) {
+                        debugInfo.textContent += `\nUser ID: ${tokenData.userId}`;
+                    }
+                    
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        // Redirect to app with token
+        function redirectToApp(method = 'auto') {
+            if (!tokenData.accessToken || redirectAttempts >= MAX_REDIRECT_ATTEMPTS) {
+                return false;
+            }
+            
+            redirectAttempts++;
+            const tokenParams = `access_token=${tokenData.accessToken}&expires_in=${tokenData.expiresIn}&user_id=${tokenData.userId}`;
+            let redirectUrl = '';
+            
+            switch(method) {
+                case 'deeplink': 
+                    // Deep link with hash fragment
+                    redirectUrl = `moodbeats://#${tokenParams}`;
+                    break;
+                
+                case 'scheme':
+                    // URL scheme with query parameters
+                    redirectUrl = `moodbeats://?${tokenParams}`;
+                    break;
+                    
+                case 'universal':
+                    // Universal link format
+                    redirectUrl = `https://moodbeats.netlify.app/auth?${tokenParams}`;
+                    break;
+                    
+                case 'auto':
+                default:
+                    // Try all methods in sequence
+                    setTimeout(() => {
+                        debugInfo.textContent += '\nTrying deep link format...';
+                        window.location.href = `moodbeats://#${tokenParams}`;
+                    }, 300);
+                    
+                    setTimeout(() => {
+                        debugInfo.textContent += '\nTrying URL scheme format...';
+                        window.location.href = `moodbeats://?${tokenParams}`;
+                    }, 1000);
+                    
+                    setTimeout(() => {
+                        debugInfo.textContent += '\nTrying specific screen format...';
+                        window.location.href = `moodbeats://fitbit-connect?${tokenParams}`;
+                    }, 1700);
+                    
+                    setTimeout(() => {
+                        debugInfo.textContent += '\nTrying universal link format...';
+                        window.location.href = `https://moodbeats.netlify.app/auth?${tokenParams}`;
+                    }, 2400);
+                    
+                    // Show manual options after all automatic attempts
+                    setTimeout(() => {
+                        statusMessage.textContent = 'Unable to automatically redirect. Please try the options below:';
+                        loader.style.display = 'none';
+                        deepLinkButton.textContent = 'Open MoodBeats App';
+                        deepLinkButton.href = `moodbeats://?${tokenParams}`;
+                        
+                        // Add additional guide text
+                        const guide = document.createElement('p');
+                        guide.innerHTML = 'If the button doesn\'t work, you can manually enter the token in the app by clicking "<strong>Having trouble connecting?</strong>" on the Fitbit Connect screen.';
+                        document.body.insertBefore(guide, document.getElementById('buttons-container'));
+                    }, 3500);
+                    
+                    return true;
+            }
+            
+            // Execute non-auto redirect
+            if (redirectUrl) {
+                debugInfo.textContent += `\nRedirecting with method: ${method}`;
+                window.location.href = redirectUrl;
+                
+                // Update deep link button
+                deepLinkButton.href = redirectUrl;
+            }
+            
+            return true;
+        }
+        
+        // Handle page visibility changes (helps detect failed redirects)
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible' && redirectAttempts > 0) {
+                // The page became visible again after redirect attempts
+                setTimeout(() => {
+                    statusMessage.textContent = 'Automatic redirect unsuccessful. Please use one of the options below:';
+                    loader.style.display = 'none';
+                }, 1000);
+            }
+        });
+        
+        // On page load, start the redirect process
+        window.onload = function() {
+            // Check for error cases first
+            if (window.location.href.includes('error=')) {
+                // Extract error details
+                const url = window.location.href;
+                const errorMatch = url.match(/[#?&]error=([^&]+)/);
+                const errorDescMatch = url.match(/[#?&]error_description=([^&]+)/);
+                
+                const error = errorMatch ? decodeURIComponent(errorMatch[1]) : 'unknown';
+                const errorDesc = errorDescMatch ? decodeURIComponent(errorDescMatch[1]).replace(/\+/g, ' ') : 'Unknown error occurred';
+                
+                // Display error message
+                loader.style.display = 'none';
+                statusMessage.textContent = `Authentication Error: ${errorDesc}`;
+                
+                // Log error details
+                debugInfo.textContent = `Error: ${error}\nDescription: ${errorDesc}`;
+                
+                // Show button to retry
+                deepLinkButton.textContent = 'Try Again';
+                deepLinkButton.href = 'https://www.fitbit.com/oauth2/authorize?response_type=token&client_id=23Q9HX&redirect_uri=https://moodbeats.netlify.app/&scope=heartrate%20activity%20profile&expires_in=31536000';
+                
+                return;
+            }
+            
+            // Extract token data and attempt redirect
+            if (extractTokenData()) {
+                redirectToApp('auto');
+            } else {
+                // No token found
+                loader.style.display = 'none';
+                statusMessage.textContent = 'No authentication token found in the URL.';
+                
+                // Show retry button
+                deepLinkButton.textContent = 'Try Authentication Again';
+                deepLinkButton.href = 'https://www.fitbit.com/oauth2/authorize?response_type=token&client_id=23Q9HX&redirect_uri=https://moodbeats.netlify.app/&scope=heartrate%20activity%20profile&expires_in=31536000';
+            }
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Netlify configuration for MoodBeats app
+
+# Build settings - if you're using build commands
+[build]
+  publish = "netlify"
+  command = "# No build command needed for this static site"
+
+# Handle deep links and redirects
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Proper content type for .well-known files
+[[headers]]
+  for = "/.well-known/*"
+  [headers.values]
+    Content-Type = "application/json"
+    Access-Control-Allow-Origin = "*"

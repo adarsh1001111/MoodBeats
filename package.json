@@ -9,14 +9,36 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.1.2",
+    "@react-native-community/netinfo": "11.1.0",
+    "@react-native-community/slider": "4.5.0",
+    "@react-navigation/native": "^7.1.6",
+    "@react-navigation/stack": "^7.2.10",
+    "base-64": "^1.0.0",
     "expo": "~53.0.5",
+    "expo-auth-session": "~5.4.0",
+    "expo-av": "^15.1.4",
+    "expo-crypto": "~12.8.0",
+    "expo-linking": "~6.2.2",
+    "expo-random": "^14.0.1",
+    "expo-sensors": "^14.1.4",
     "expo-status-bar": "~2.2.3",
+    "expo-web-browser": "~12.8.2",
     "react": "19.0.0",
-    "react-native": "0.79.2"
+    "react-native": "0.79.2",
+    "react-native-app-auth": "^7.1.0",
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-reanimated": "~3.17.4",
+    "react-native-safe-area-context": "^5.4.0",
+    "react-native-screens": "^4.10.0",
+    "react-native-vector-icons": "^10.2.0",
+    "url-parse": "^1.5.10"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@types/base-64": "^1.0.2",
     "@types/react": "~19.0.10",
+    "@types/url-parse": "^1.4.11",
     "typescript": "~5.8.3"
   },
   "private": true

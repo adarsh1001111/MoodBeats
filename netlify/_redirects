@@ -1,0 +1,7 @@
+# Netlify redirects file
+
+# Handle the .well-known directory properly
+/.well-known/*  /.well-known/:splat  200
+
+# Redirect all URLs to index.html for client-side routing
+/*  /index.html  200
