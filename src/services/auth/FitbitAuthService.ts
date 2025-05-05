@@ -386,6 +386,42 @@ class FitbitAuthService {
     try {
       console.log('Processing Implicit Grant callback');
       
+      // Direct token extraction attempt first
+      const directTokenMatch = url.match(/access_token=([^&#]+)/);
+      if (directTokenMatch && directTokenMatch[1]) {
+        console.log('Directly found access_token via regex');
+        const accessToken = directTokenMatch[1];
+        const expiresInMatch = url.match(/expires_in=([^&#]+)/);
+        const expiresIn = expiresInMatch ? expiresInMatch[1] : '31536000';
+        const userIdMatch = url.match(/user_id=([^&#]+)/);
+        const userId = userIdMatch ? userIdMatch[1] : undefined;
+        const scopeMatch = url.match(/scope=([^&#]+)/);
+        const scope = scopeMatch ? decodeURIComponent(scopeMatch[1]) : undefined;
+        
+        // Store token directly
+        const tokenData: ApiToken = {
+          accessToken: accessToken,
+          refreshToken: '', // No refresh token in implicit grant
+          expiresAt: Date.now() + (parseInt(expiresIn) * 1000),
+          userId: userId,
+          scope: scope
+        };
+        
+        console.log('Storing directly extracted token - Expires at:', new Date(tokenData.expiresAt).toISOString());
+        await AsyncStorage.setItem(API_TOKEN_STORAGE_KEY, JSON.stringify(tokenData));
+        
+        try {
+          // Get user profile to store as "device"
+          await this._getUserProfile();
+          return true;
+        } catch (profileError) {
+          console.error('Error getting profile with directly extracted token, but will continue:', profileError);
+          // Even if profile fails, the token might be valid
+          return true;
+        }
+      }
+      
+      // If direct extraction failed, try standard parsing methods
       // Parse the URL to extract tokens from either fragment or query string
       let paramString = '';
       

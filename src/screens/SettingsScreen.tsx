@@ -39,6 +39,7 @@ interface UserSettings {
   notificationsEnabled: boolean;
   autoPlayEnabled: boolean;
   highQualityStreaming: boolean;
+  showSensorData: boolean;
 }
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
@@ -50,6 +51,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(true);
   const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(true);
   const [highQualityStreaming, setHighQualityStreaming] = useState<boolean>(false);
+  const [showSensorData, setShowSensorData] = useState<boolean>(true);
   
   useEffect(() => {
     loadSettings();
@@ -67,6 +69,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         setNotificationsEnabled(parsedSettings.notificationsEnabled ?? true);
         setAutoPlayEnabled(parsedSettings.autoPlayEnabled ?? true);
         setHighQualityStreaming(parsedSettings.highQualityStreaming ?? false);
+        setShowSensorData(parsedSettings.showSensorData ?? true);
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -84,9 +87,15 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         notificationsEnabled,
         autoPlayEnabled,
         highQualityStreaming,
+        showSensorData,
       };
       
       await AsyncStorage.setItem('userSettings', JSON.stringify(settings));
+
+      // Signal the app to update the sensor display
+      if (global.setSensorDisplay) {
+        global.setSensorDisplay(showSensorData);
+      }
     } catch (error) {
       console.error('Error saving settings:', error);
       Alert.alert(
@@ -134,6 +143,11 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   
   const handleToggleHighQuality = (value: boolean) => {
     setHighQualityStreaming(value);
+    saveSettings();
+  };
+  
+  const handleToggleSensorData = (value: boolean) => {
+    setShowSensorData(value);
     saveSettings();
   };
   
@@ -286,6 +300,15 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           true,
           notificationsEnabled,
           handleToggleNotifications
+        )}
+
+        {renderSettingItem(
+          'speedometer-outline',
+          'Sensor Data Display',
+          'Show accelerometer and gyroscope readings',
+          true,
+          showSensorData,
+          handleToggleSensorData
         )}
       </View>
       

@@ -43,6 +43,17 @@ interface FitbitDevice {
 }
 
 const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
+  // Store navigation in global reference for use in deep linking
+  useEffect(() => {
+    // Make navigation available globally for deep link handling
+    global.navigation = navigation;
+    
+    return () => {
+      // Clean up global reference when component unmounts
+      global.navigation = undefined;
+    };
+  }, [navigation]);
+  
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -303,39 +314,93 @@ const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
     try {
       console.log('Starting Fitbit auth');
       
-      // Use the new auth flow
-      const success = await HeartRateService.authorize();
-      
-      if (success) {
-        // If successful, update the UI
-        await checkConnection();
-        
-        Alert.alert(
-          'Connection Successful',
-          'Connected to Fitbit account',
-          [{ 
-            text: 'OK',
-            onPress: () => navigation.navigate('Home')
-          }]
-        );
-      } else {
-        Alert.alert(
-          'Connection Failed',
-          'Could not connect to your Fitbit account. Please try again.',
-          [{ text: 'OK' }]
-        );
-      }
-      
-      setIsLoading(false);
+      // Create an alert to guide the user
+      Alert.alert(
+      'Fitbit Authorization',
+      'You will be redirected to the Fitbit website. After signing in, the app should automatically reconnect. If not, you can still use the manual token option.',
+      [
+          { 
+            text: 'Continue', 
+            onPress: async () => {
+              // Set a longer timeout for the loading state
+              setTimeout(() => {
+                setIsLoading(false);
+              }, 30000); // 30 seconds timeout
+              
+              try {
+                // Use the OAuth flow
+                const success = await HeartRateService.authorize();
+                
+                if (success) {
+                  // If successful, update the UI
+                  await checkConnection();
+                  
+                  Alert.alert(
+                    'Connection Successful',
+                    'Connected to Fitbit account',
+                    [{ 
+                      text: 'OK',
+                      onPress: () => navigation.navigate('Home')
+                    }]
+                  );
+                } else {
+                  Alert.alert(
+                    'Connection Failed',
+                    'Could not connect to your Fitbit account. Try entering your token manually.',
+                    [{ 
+                      text: 'Enter Token Manually',
+                      onPress: () => navigation.navigate('ManualToken')
+                    },
+                    {
+                      text: 'Cancel',
+                      style: 'cancel'
+                    }]
+                  );
+                }
+                
+                setIsLoading(false);
+              } catch (error) {
+                console.error('Error during Fitbit authorization:', error);
+                setIsLoading(false);
+                
+                Alert.alert(
+                  'Connection Failed',
+                  'There was an error connecting to your Fitbit account. Would you like to try entering your token manually?',
+                  [{ 
+                    text: 'Enter Token Manually',
+                    onPress: () => navigation.navigate('ManualToken')
+                  },
+                  {
+                    text: 'Cancel',
+                    style: 'cancel'
+                  }]
+                );
+              }
+            }
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setIsLoading(false)
+          }
+        ]
+      );
     } catch (error) {
       console.error('Error starting Fitbit authorization:', error);
-      Alert.alert(
-        'Connection Failed',
-        'Could not connect to your Fitbit account. Please try again.',
-        [{ text: 'OK' }]
-      );
-      
       setIsLoading(false);
+      
+      Alert.alert(
+        'Connection Error',
+        'Could not start the authorization process. Please try manually entering your token.',
+        [{ 
+          text: 'Enter Token Manually',
+          onPress: () => navigation.navigate('ManualToken')
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }]
+      );
     }
   };
   

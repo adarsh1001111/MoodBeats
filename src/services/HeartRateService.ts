@@ -416,8 +416,95 @@ class HeartRateService {
       console.log('- Has access_token in query:', url.includes('?access_token='));
       console.log('- Has access_token anywhere:', url.includes('access_token='));
       console.log('- URL length:', url.length);
+      console.log('- Full URL:', url);
       
-      // Forward the callback to FitbitAuthService
+      // Check for specific callback patterns
+      if (url.includes('fitbit-callback') && url.includes('access_token=')) {
+        console.log('Detected direct callback URL with token');
+      }
+      
+      // Check for our custom auth-token format (highest priority)
+      if (url.includes('auth-token/')) {
+        console.log('Detected auth-token direct path format');
+        
+        try {
+          // Extract token directly from the path
+          const urlParts = url.split('auth-token/');
+          if (urlParts.length >= 2) {
+            const tokenPath = urlParts[1];
+            
+            // Handle query parameters vs path segment
+            const tokenParts = tokenPath.split('?');
+            const accessToken = tokenParts[0]; // First part is the token
+            
+            if (accessToken && accessToken.length > 10) {
+              console.log('Found valid token in direct path format:', accessToken.substring(0, 5) + '...');
+              
+              // Use the handleManualToken method since we already have the token
+              const success = await this.handleManualToken(accessToken);
+              if (success) {
+                console.log('Successfully authenticated with direct token');
+                return true;
+              }
+            }
+          }
+        } catch (tokenError) {
+          console.error('Error extracting token from auth-token path:', tokenError);
+        }
+      }
+      
+      // For URLs with the redirect URI pattern, extract token directly if it's there
+      if (url.includes('moodmusicapp.netlify.app') || url.includes('moodbeats.netlify.app')) {
+        console.log('Detected redirect URL, looking for token directly');
+        
+        // Try to extract token from URL even if in a non-standard format
+        const tokenMatch = url.match(/[#?&]?access_token=([^&]+)/);
+        if (tokenMatch && tokenMatch[1]) {
+          const accessToken = tokenMatch[1];
+          const expiresInMatch = url.match(/expires_in=([^&]+)/);
+          const expiresIn = expiresInMatch ? expiresInMatch[1] : '31536000';
+          const userIdMatch = url.match(/user_id=([^&]+)/);
+          const userId = userIdMatch ? userIdMatch[1] : undefined;
+          
+          console.log('Extracted token directly from URL');
+          
+          // Create token data and store it directly
+          const tokenData = {
+            accessToken: accessToken,
+            refreshToken: '',
+            expiresAt: Date.now() + (parseInt(expiresIn) * 1000),
+            userId: userId
+          };
+          
+          // Store token data
+          await AsyncStorage.setItem('fitbit_api_token', JSON.stringify(tokenData));
+          
+          // Try to get user profile
+          try {
+            await FitbitAuthService._getUserProfile();
+            
+            // Update connected device
+            this.connectedDevice = await FitbitAuthService.getConnectedDevice();
+            
+            // If we have a connected device now, consider it a success
+            if (this.connectedDevice) {
+              console.log('Direct token extraction approach successful');
+              
+              // Stop simulation if it was running
+              if (this.isSimulating) {
+                this.stopSimulation();
+              }
+              
+              return true;
+            }
+          } catch (profileError) {
+            console.error('Profile retrieval error, but token might still be valid:', profileError);
+            // Continue with regular flow even if profile fails
+          }
+        }
+      }
+      
+      // Forward the callback to FitbitAuthService as usual
       const success = await FitbitAuthService.handleAuthorizationCallback(url);
       
       if (success) {
@@ -436,11 +523,11 @@ class HeartRateService {
       } else {
         console.log('Fitbit authorization failed or was cancelled');
         
-        // If we couldn't authenticate but the URL has token parts, try one more approach
+        // If we couldn't authenticate but the URL has token parts, try another approach
         if (url.includes('access_token=')) {
           console.log('URL contains token parts but parsing failed, trying alternative approach');
           
-          // Extract just the access token using regex
+          // Extract just the access token using regex with a more flexible pattern
           const tokenMatch = url.match(/access_token=([^&#]+)/);
           if (tokenMatch && tokenMatch[1]) {
             const accessToken = tokenMatch[1];
@@ -449,7 +536,7 @@ class HeartRateService {
             const userIdMatch = url.match(/user_id=([^&#]+)/);
             const userId = userIdMatch ? userIdMatch[1] : undefined;
             
-            console.log('Extracted token directly using regex');
+            console.log('Extracted token using fallback regex approach');
             
             // Create token data and store it directly
             const tokenData = {
@@ -463,21 +550,41 @@ class HeartRateService {
             await AsyncStorage.setItem('fitbit_api_token', JSON.stringify(tokenData));
             
             // Try to get user profile
-            await FitbitAuthService._getUserProfile();
-            
-            // Update connected device
-            this.connectedDevice = await FitbitAuthService.getConnectedDevice();
-            
-            // If we have a connected device now, consider it a success
-            if (this.connectedDevice) {
-              console.log('Alternative token extraction approach successful');
+            try {
+              await FitbitAuthService._getUserProfile();
               
-              // Stop simulation if it was running
-              if (this.isSimulating) {
-                this.stopSimulation();
+              // Update connected device
+              this.connectedDevice = await FitbitAuthService.getConnectedDevice();
+              
+              // If we have a connected device now, consider it a success
+              if (this.connectedDevice) {
+                console.log('Alternative token extraction approach successful');
+                
+                // Stop simulation if it was running
+                if (this.isSimulating) {
+                  this.stopSimulation();
+                }
+                
+                return true;
               }
-              
-              return true;
+            } catch (profileError) {
+              console.error('Error getting user profile with fallback approach:', profileError);
+              // Token might still be valid, check with a direct API call
+              const isValidToken = await this._verifyTokenWithSimpleApiCall(accessToken);
+              if (isValidToken) {
+                console.log('Token validated with API call');
+                // Update the device info manually
+                this.connectedDevice = {
+                  id: userId || 'unknown-user',
+                  name: 'Fitbit Device',
+                  batteryLevel: 100
+                };
+                // Stop simulation
+                if (this.isSimulating) {
+                  this.stopSimulation();
+                }
+                return true;
+              }
             }
           }
         }
@@ -486,6 +593,36 @@ class HeartRateService {
       return success;
     } catch (error) {
       console.error('Error handling Fitbit auth callback:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Verify token with a simple API call
+   * This is used as a last resort to check if a token is valid
+   */
+  static async _verifyTokenWithSimpleApiCall(token: string): Promise<boolean> {
+    try {
+      console.log('Verifying token with simple API call');
+      
+      // Make a simple API call to check if the token is valid
+      const response = await fetch('https://api.fitbit.com/1/user/-/profile.json', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        console.log('Token is valid - API call succeeded');
+        // If we got a successful response, the token is valid
+        return true;
+      }
+      
+      console.log('Token verification failed - API call returned:', response.status);
+      return false;
+    } catch (error) {
+      console.error('Error verifying token with API call:', error);
       return false;
     }
   }

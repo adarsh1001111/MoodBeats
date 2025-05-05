@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MoodBeats - Authentication</title>
+    <script src="./js/bridge.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
@@ -25,6 +26,7 @@
             margin-bottom: 20px;
             font-size: 18px;
             max-width: 600px;
+            color: #ffeb3b;
         }
         .loader {
             border: 5px solid rgba(255, 255, 255, 0.3);
@@ -65,7 +67,7 @@
         .debug-info {
             margin-top: 20px;
             font-size: 12px;
-            color: rgba(255, 255, 255, 0.6);
+            color: rgba(255, 255, 0, 0.8);
             max-width: 80%;
             word-break: break-all;
         }
@@ -140,7 +142,7 @@
     <div class="app-icon">MB</div>
     <h1>MoodBeats</h1>
     <div class="loader" id="loader"></div>
-    <p id="status-message">Fitbit authentication successful! Redirecting back to the app...</p>
+    <p id="status-message" style="color: #ffeb3b; font-weight: bold;">Fitbit authentication successful! Redirecting back to the app...</p>
     
     <div class="redirect-methods" id="redirect-methods">
         <button class="method-button active" id="method-auto">Automatic</button>
@@ -315,6 +317,7 @@
         
         // Redirect to app with token
         function redirectToApp(method = 'auto') {
+            // If we've already reached max attempts, don't try again
             if (!tokenData.accessToken || redirectAttempts >= MAX_REDIRECT_ATTEMPTS) {
                 return false;
             }
@@ -333,6 +336,11 @@
                     // URL scheme with query parameters
                     redirectUrl = `moodbeats://?${tokenParams}`;
                     break;
+                
+                case 'direct':
+                    // Direct token transport (custom URI)
+                    redirectUrl = `moodbeats://auth-token/${tokenData.accessToken}?expires_in=${tokenData.expiresIn}&user_id=${tokenData.userId}`;
+                    break;
                     
                 case 'universal':
                     // Universal link format
@@ -341,47 +349,85 @@
                     
                 case 'auto':
                 default:
-                    // Try all methods in sequence
+                    // First, display helpful instructions
+                    statusMessage.textContent = 'Authentication successful! Attempting to return to app...';
+                    
+                    // IMPORTANT: Make sure token is always visible
+                    tokenContainer.style.display = 'block';
+                    
+                    // CRITICAL: Don't try to navigate away in a way that removes the token display
+                    // Instead, use iframes for all redirect attempts
+                    
+                    // Try direct token format in iframe
                     setTimeout(() => {
-                        debugInfo.textContent += '\nTrying deep link format...';
-                        window.location.href = `moodbeats://#${tokenParams}`;
+                        debugInfo.textContent += '\nTrying direct token transport in iframe...';
+                        const frame1 = document.createElement('iframe');
+                        frame1.style.display = 'none';
+                        frame1.src = `moodbeats://auth-token/${tokenData.accessToken}?expires_in=${tokenData.expiresIn}&user_id=${tokenData.userId}`;
+                        document.body.appendChild(frame1);
                     }, 300);
                     
+                    // Try callback approach in iframe
                     setTimeout(() => {
-                        debugInfo.textContent += '\nTrying URL scheme format...';
-                        window.location.href = `moodbeats://?${tokenParams}`;
-                    }, 1000);
+                        debugInfo.textContent += '\nTrying callback approach in iframe...';
+                        const frame2 = document.createElement('iframe');
+                        frame2.style.display = 'none';
+                        frame2.src = `moodbeats://fitbit-callback?${tokenParams}`;
+                        document.body.appendChild(frame2);
+                    }, 800);
                     
+                    // Try hash fragment in iframe
                     setTimeout(() => {
-                        debugInfo.textContent += '\nTrying specific screen format...';
-                        window.location.href = `moodbeats://fitbit-connect?${tokenParams}`;
-                    }, 1700);
+                        debugInfo.textContent += '\nTrying hash approach in iframe...';
+                        const frame3 = document.createElement('iframe');
+                        frame3.style.display = 'none';
+                        frame3.src = `moodbeats://#${tokenParams}`;
+                        document.body.appendChild(frame3);
+                    }, 1300);
                     
+                    // Add instructions that are always visible
                     setTimeout(() => {
-                        debugInfo.textContent += '\nTrying universal link format...';
-                        window.location.href = `https://moodbeats.netlify.app/auth?${tokenParams}`;
-                    }, 2400);
-                    
-                    // Show manual options after all automatic attempts
-                    setTimeout(() => {
-                        statusMessage.textContent = 'Unable to automatically redirect. Please try the options below:';
-                        loader.style.display = 'none';
-                        deepLinkButton.textContent = 'Open MoodBeats App';
-                        deepLinkButton.href = `moodbeats://?${tokenParams}`;
+                        const instructionsDiv = document.createElement('div');
+                        instructionsDiv.style.margin = '20px';
+                        instructionsDiv.style.padding = '10px';
+                        instructionsDiv.style.border = '1px solid #ccc';
+                        instructionsDiv.style.borderRadius = '8px';
+                        instructionsDiv.style.backgroundColor = '#4a00c2';
+                        instructionsDiv.style.color = '#fff';
                         
-                        // Add additional guide text
-                        const guide = document.createElement('p');
-                        guide.innerHTML = 'If the button doesn\'t work, you can manually enter the token in the app by clicking "<strong>Having trouble connecting?</strong>" on the Fitbit Connect screen.';
-                        document.body.insertBefore(guide, document.getElementById('buttons-container'));
-                    }, 3500);
+                        instructionsDiv.innerHTML = `
+                            <h3 style="margin-top: 0; color: #ffeb3b;">Manual Connection Instructions:</h3>
+                            <ol style="text-align: left; color: #ffeb3b;">
+                                <li>Copy the token above</li>
+                                <li>Open the MoodBeats app</li>
+                                <li>Go to "Connect Fitbit" screen</li>
+                                <li>Tap "Having trouble connecting?"</li>
+                                <li>Paste the token and tap "Connect"</li>
+                            </ol>
+                        `;
+                        
+                        // Find a good place to insert the instructions
+                        const insertTarget = document.getElementById('buttons-container') || tokenContainer;
+                        document.body.insertBefore(instructionsDiv, insertTarget.nextSibling);
+                    }, 2000);
+                    
+                    // Update status after all attempts
+                    setTimeout(() => {
+                        statusMessage.innerHTML = '<span style="color: #ffeb3b; font-weight: bold;">Automatic connection attempted. If unsuccessful, use the token below:</span>';
+                        loader.style.display = 'none';
+                    }, 3000);
                     
                     return true;
             }
             
-            // Execute non-auto redirect
+            // Execute non-auto redirect using an iframe approach to avoid navigating away
             if (redirectUrl) {
-                debugInfo.textContent += `\nRedirecting with method: ${method}`;
-                window.location.href = redirectUrl;
+                debugInfo.textContent += `\nRedirecting with method: ${method} (iframe approach)`;
+                
+                const frame = document.createElement('iframe');
+                frame.style.display = 'none';
+                frame.src = redirectUrl;
+                document.body.appendChild(frame);
                 
                 // Update deep link button
                 deepLinkButton.href = redirectUrl;
@@ -395,7 +441,7 @@
             if (document.visibilityState === 'visible' && redirectAttempts > 0) {
                 // The page became visible again after redirect attempts
                 setTimeout(() => {
-                    statusMessage.textContent = 'Automatic redirect unsuccessful. Please use one of the options below:';
+                    statusMessage.innerHTML = '<span style="color: #ffeb3b; font-weight: bold;">Automatic redirect unsuccessful. Please use one of the options below:</span>';
                     loader.style.display = 'none';
                 }, 1000);
             }
@@ -422,22 +468,67 @@
                 
                 // Show button to retry
                 deepLinkButton.textContent = 'Try Again';
-                deepLinkButton.href = 'https://www.fitbit.com/oauth2/authorize?response_type=token&client_id=23Q9HX&redirect_uri=https://moodbeats.netlify.app/&scope=heartrate%20activity%20profile&expires_in=31536000';
+                deepLinkButton.href = 'https://www.fitbit.com/oauth2/authorize?response_type=token&client_id=23Q9HX&redirect_uri=https://moodbeats.netlify.app/&scope=heartrate%20activity%20profile%20settings%20sleep&expires_in=31536000';
                 
                 return;
             }
             
             // Extract token data and attempt redirect
             if (extractTokenData()) {
-                redirectToApp('auto');
-            } else {
+            // Always display the token - CRITICAL CHANGE!
+            tokenContainer.style.display = 'block';
+            showTokenButton.textContent = 'Hide Token';
+            
+            // Add status message to help users
+            const statusElement = document.createElement('p');
+            statusElement.innerHTML = '<strong style="color: #ffeb3b;">✓ Token extracted successfully!</strong> <span style="color: #ffeb3b;">If automatic redirect fails, copy the token below for manual entry.</span>';
+            statusElement.style.color = '#4caf50';
+            statusElement.style.fontWeight = 'bold';
+                document.body.insertBefore(statusElement, tokenContainer);
+
+            // Immediately try to pass token to native app using a safer approach
+            // Use appendChild instead of innerHTML to avoid replacing existing content
+            const transport = document.createElement('div');
+            transport.id = 'token-transport';
+            transport.style.display = 'none';
+            
+            const iframe = document.createElement('iframe');
+            iframe.src = `moodbeats://auth-token/${tokenData.accessToken}?expires_in=${tokenData.expiresIn}&user_id=${tokenData.userId || ''}`;
+            iframe.height = '1';
+            iframe.width = '1';
+            
+            transport.appendChild(iframe);
+            document.body.appendChild(transport);
+
+            // Also create a prominent manual button
+            const manualButton = document.createElement('button');
+            manualButton.className = 'button';
+            manualButton.textContent = 'Open MoodBeats with Token';
+            manualButton.style.backgroundColor = '#4caf50';
+            manualButton.style.margin = '20px auto';
+            manualButton.style.display = 'block';
+            manualButton.style.fontSize = '18px';
+            manualButton.style.padding = '15px 30px';
+            manualButton.onclick = function() {
+                window.location.href = `moodbeats://auth-token/${tokenData.accessToken}?expires_in=${tokenData.expiresIn}&user_id=${tokenData.userId || ''}`;
+            };
+            
+            const btnContainer = document.createElement('div');
+            btnContainer.style.textAlign = 'center';
+            btnContainer.appendChild(manualButton);
+            
+            document.body.insertBefore(btnContainer, document.getElementById('buttons-container'));
+
+            // Then try standard approaches
+            redirectToApp('auto');
+        } else {
                 // No token found
                 loader.style.display = 'none';
                 statusMessage.textContent = 'No authentication token found in the URL.';
                 
                 // Show retry button
                 deepLinkButton.textContent = 'Try Authentication Again';
-                deepLinkButton.href = 'https://www.fitbit.com/oauth2/authorize?response_type=token&client_id=23Q9HX&redirect_uri=https://moodbeats.netlify.app/&scope=heartrate%20activity%20profile&expires_in=31536000';
+                deepLinkButton.href = 'https://www.fitbit.com/oauth2/authorize?response_type=token&client_id=23Q9HX&redirect_uri=https://moodbeats.netlify.app/&scope=heartrate%20activity%20profile%20settings%20sleep&expires_in=31536000';
             }
         };
     </script>

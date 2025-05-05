@@ -15,6 +15,12 @@
       "**/*"
     ],
     "scheme": "moodbeats",
+    "extra": {
+      "redirectUris": [
+        "moodbeats://",
+        "https://moodbeats.netlify.app/"
+      ]
+    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
