@@ -12,6 +12,7 @@ const DEFAULT_MONITOR_INTERVAL = 60000; // 1 minute
 export interface HeartRateReading {
   value: number;
   timestamp: number;
+  deviceTimestamp?: number; // Add device timestamp field
   source?: string; // 'fitbit', 'simulation', 'stored'
 }
 
@@ -244,12 +245,15 @@ class HeartRateService {
       const isConnected = await this.isConnected();
       let heartRate: number | null = null;
       let source: string = 'stored';
+      let deviceTime: string | undefined;
       
       if (isConnected) {
         // Get heart rate from Fitbit API
-        heartRate = await FitbitAuthService.getHeartRate();
-        if (heartRate) {
-          console.log('Fetched heart rate from Fitbit API:', heartRate);
+        const heartRateData = await FitbitAuthService.getHeartRate();
+        if (heartRateData) {
+          console.log('Fetched heart rate from Fitbit API:', heartRateData.value);
+          heartRate = heartRateData.value;
+          deviceTime = heartRateData.deviceTime;
           source = 'fitbit';
         } else {
           console.log('Failed to get heart rate from Fitbit API');
@@ -282,7 +286,14 @@ class HeartRateService {
       
       if (heartRate) {
         // Store the heart rate for history
-        await this._storeHeartRate(heartRate, source);
+        if (deviceTime) {
+          // Calculate device timestamp from time string
+          const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+          const deviceTimestamp = new Date(`${today}T${deviceTime}`).getTime();
+          await this._storeHeartRate(heartRate, source, deviceTimestamp);
+        } else {
+          await this._storeHeartRate(heartRate, source);
+        }
         return heartRate;
       }
     } catch (error) {
@@ -301,18 +312,25 @@ class HeartRateService {
   /**
    * Store heart rate reading
    */
-  static async _storeHeartRate(value: number, source: string = 'unknown'): Promise<void> {
+  static async _storeHeartRate(value: number, source: string = 'unknown', deviceTimestamp?: number): Promise<void> {
     try {
       // Get existing history
       const historyJson = await AsyncStorage.getItem(HEART_RATE_STORAGE_KEY);
       let history: HeartRateReading[] = historyJson ? JSON.parse(historyJson) : [];
       
       // Add new reading
-      history.push({
+      const newReading: HeartRateReading = {
         value,
         timestamp: Date.now(),
         source
-      });
+      };
+      
+      // Add device timestamp if provided
+      if (deviceTimestamp) {
+        newReading.deviceTimestamp = deviceTimestamp;
+      }
+      
+      history.push(newReading);
       
       // Keep only last 100 readings
       if (history.length > 100) {
@@ -495,6 +513,14 @@ class HeartRateService {
                 this.stopSimulation();
               }
               
+              // Make sure to reset navigation to home without back button
+              if (global.navigation) {
+                global.navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                });
+              }
+              
               return true;
             }
           } catch (profileError) {
@@ -673,6 +699,14 @@ class HeartRateService {
           this.stopSimulation();
         }
         
+        // Make sure to reset navigation to home without back button
+        if (global.navigation) {
+          global.navigation.reset({
+            index: 0,
+            routes: [{ name: 'Home' }],
+          });
+        }
+        
         return true;
       }
       
@@ -722,12 +756,19 @@ class HeartRateService {
       if (isConnected) {
         console.log('Getting heart rate from Fitbit API');
         // Use the API approach
-        const heartRate = await FitbitAuthService.getHeartRate();
-        if (heartRate) {
-          console.log('Got heart rate from API:', heartRate);
-          // Store the heart rate for history
-          await this._storeHeartRate(heartRate, 'fitbit');
-          return heartRate;
+        const heartRateData = await FitbitAuthService.getHeartRate();
+        if (heartRateData) {
+          console.log('Got heart rate from API:', heartRateData.value);
+          // Store the heart rate for history with device timestamp if available
+          if (heartRateData.deviceTime) {
+            // Calculate device timestamp from time string
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const deviceTimestamp = new Date(`${today}T${heartRateData.deviceTime}`).getTime();
+            await this._storeHeartRate(heartRateData.value, 'fitbit', deviceTimestamp);
+          } else {
+            await this._storeHeartRate(heartRateData.value, 'fitbit');
+          }
+          return heartRateData.value;
         } else {
           console.log('Failed to get heart rate from API, falling back to alternatives');
         }

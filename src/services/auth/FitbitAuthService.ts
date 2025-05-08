@@ -36,6 +36,7 @@ export interface FitbitDevice {
   id: string;
   name: string;
   batteryLevel?: number;
+  model?: string; // Added model field to store device type
 }
 
 /**
@@ -716,6 +717,14 @@ class FitbitAuthService {
         const device = devices[0];
         console.log('Selected device:', device);
         
+        // Update the stored device info with this device model
+        const storedDevice = await this.getConnectedDevice();
+        if (storedDevice) {
+          storedDevice.model = device.deviceVersion;
+          // Save the updated device info
+          await AsyncStorage.setItem(DEVICE_STORAGE_KEY, JSON.stringify(storedDevice));
+        }
+        
         return {
           name: device.deviceVersion,
           batteryLevel: device.batteryLevel || 100
@@ -786,8 +795,9 @@ class FitbitAuthService {
   
   /**
    * Get heart rate from Fitbit API
+   * @returns {Promise<{value: number, deviceTime?: string} | null>} Heart rate value and device time string
    */
-  static async getHeartRate(): Promise<number | null> {
+  static async getHeartRate(): Promise<{value: number, deviceTime?: string} | null> {
     try {
       console.log('Getting heart rate from Fitbit API');
       
@@ -846,7 +856,11 @@ class FitbitAuthService {
             const latestReading = dataset[dataset.length - 1];
             console.log('Latest intraday heart rate reading:', latestReading);
             
-            return latestReading.value;
+            // Return both heart rate value and time string
+            return {
+              value: latestReading.value,
+              deviceTime: latestReading.time
+            };
           }
         } else {
           console.log('Intraday heart rate request failed:', intradayResponse.status);
@@ -887,7 +901,12 @@ class FitbitAuthService {
         if (data['activities-heart'][0].value.restingHeartRate) {
           const restingHeartRate = data['activities-heart'][0].value.restingHeartRate;
           console.log('Using resting heart rate:', restingHeartRate);
-          return restingHeartRate;
+          // Get the latest date from the data for a timestamp
+          const dateString = data['activities-heart'][0].dateTime;
+          return {
+            value: restingHeartRate,
+            deviceTime: '12:00:00' // Use noon as an approximation for resting heart rate
+          };
         }
         
         // If no resting heart rate, estimate from zones if available
@@ -898,7 +917,10 @@ class FitbitAuthService {
             const lowestZone = zones[0];
             const estimatedHeartRate = Math.floor((lowestZone.min + lowestZone.max) / 2);
             console.log('Estimated heart rate from zones:', estimatedHeartRate);
-            return estimatedHeartRate;
+            return {
+              value: estimatedHeartRate,
+              deviceTime: '12:00:00' // Use noon as an approximation
+            };
           }
         }
       }

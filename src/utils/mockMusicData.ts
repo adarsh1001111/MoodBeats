@@ -1,4 +1,4 @@
-// Mock data for the MoodBeats app
+// Mock data for the MoodBeats app with updated file paths
 // This file provides sample data for testing and development
 
 /**
@@ -32,7 +32,7 @@ export const mockSongs: Song[] = [
     artist: 'Ocean Sounds',
     album: 'Natural Healing',
     artwork: 'https://picsum.photos/id/1025/400',
-    audioUrl: 'https://example.com/tracks/calm_waves.mp3',
+    audioUrl: 'https://example.com/tracks/calm_waves.mp3', // This doesn't exist - will use simulation
     duration: 240,
     genre: 'Ambient',
   },
@@ -179,6 +179,16 @@ export const mockMoodRecommendations: Record<string, Song[]> = {
     mockSongs[4],  // Evening Relaxation
     mockSongs[8],  // Sunset Chill
   ],
+  'Angry': [
+    mockSongs[1],  // Energy Boost
+    mockSongs[5],  // Morning Run
+    mockSongs[9],  // Motivation
+  ],
+  'Relaxed': [
+    mockSongs[0],  // Calm Waves
+    mockSongs[4],  // Evening Relaxation
+    mockSongs[8],  // Sunset Chill
+  ],
   'Energetic': [
     mockSongs[1],  // Energy Boost
     mockSongs[5],  // Morning Run
@@ -191,10 +201,5 @@ export const mockMoodRecommendations: Record<string, Song[]> = {
   'Focused': [
     mockSongs[3],  // Deep Focus
     mockSongs[7],  // Concentration
-  ],
-  'Relaxed': [
-    mockSongs[0],  // Calm Waves
-    mockSongs[4],  // Evening Relaxation
-    mockSongs[8],  // Sunset Chill
   ],
 };

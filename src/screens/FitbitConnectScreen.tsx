@@ -40,9 +40,17 @@ interface FitbitDevice {
   id: string;
   name: string;
   batteryLevel?: number;
+  model?: string; // Add model field to store device type
 }
 
 const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
+  // Function to safely navigate back to Home without showing back button
+  const resetToHome = () => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Home' }],
+    });
+  };
   // Store navigation in global reference for use in deep linking
   useEffect(() => {
     // Make navigation available globally for deep link handling
@@ -215,7 +223,7 @@ const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
         `Connected to ${device.name}`,
         [{ 
           text: 'OK',
-          onPress: () => navigation.navigate('Home')
+          onPress: () => resetToHome()
         }]
       );
     } catch (error) {
@@ -340,7 +348,7 @@ const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
                     'Connected to Fitbit account',
                     [{ 
                       text: 'OK',
-                      onPress: () => navigation.navigate('Home')
+                      onPress: () => resetToHome()
                     }]
                   );
                 } else {
@@ -428,7 +436,9 @@ const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
     setIsRefreshing(false);
   };
   
-  const formatTime = (timestamp: number): string => {
+  const formatTime = (item: HeartRateReading): string => {
+    // Use device timestamp if available, otherwise fall back to the local timestamp
+    const timestamp = item.deviceTimestamp || item.timestamp;
     const date = new Date(timestamp);
     return date.toLocaleTimeString();
   };
@@ -494,6 +504,9 @@ const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
               <Ionicons name="watch" size={28} color="#6200ea" />
               <View style={styles.deviceCardInfo}>
                 <Text style={styles.connectedDeviceName}>{connectedDevice.name}</Text>
+                {connectedDevice.model && (
+                  <Text style={styles.deviceModel}>{connectedDevice.model}</Text>
+                )}
                 <Text style={styles.connectedStatus}>Connected via Fitbit API</Text>
                 {deviceInfo && (
                   <Text style={styles.batteryStatus}>
@@ -539,7 +552,7 @@ const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
                 {heartRateHistory.map((item, index) => (
                   <View key={index} style={styles.historyItem}>
                     <Text style={styles.historyValue}>{item.value} BPM</Text>
-                    <Text style={styles.historyTime}>{formatTime(item.timestamp)}</Text>
+                    <Text style={styles.historyTime}>{formatTime(item)}</Text>
                   </View>
                 ))}
               </View>
@@ -555,7 +568,7 @@ const FitbitConnectScreen: React.FC<Props> = ({ navigation }) => {
           
           <TouchableOpacity 
             style={styles.returnButton}
-            onPress={() => navigation.navigate('Home')}
+            onPress={resetToHome}
           >
             <Text style={styles.returnText}>Return to Home</Text>
           </TouchableOpacity>
@@ -870,6 +883,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#212121',
+  },
+  deviceModel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6200ea',
+    marginTop: 2,
   },
   connectedStatus: {
     fontSize: 14,

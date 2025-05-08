@@ -10,23 +10,30 @@ import * as WebBrowser from 'expo-web-browser';
 
 // Import screen components
 import HomeScreen from './src/screens/HomeScreen';
-import MoodPlayerScreen from './src/screens/MoodPlayerScreen';
+import EnhancedMoodPlayerScreen from './src/screens/EnhancedMoodPlayerScreen';
 import PlaylistScreen from './src/screens/PlaylistScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import FitbitConnectScreen from './src/screens/FitbitConnectScreen';
 import ManualTokenScreen from './src/screens/ManualTokenScreen';
+import MoodFolderScreen from './src/screens/MoodFolderScreen';
+import AllMoodFoldersScreen from './src/screens/AllMoodFoldersScreen';
 
 // Import services
 import HeartRateService from './src/services/HeartRateService';
+import EnhancedMusicService from './src/services/EnhancedMusicService';
+import MoodFolderService from './src/services/MoodFolderService';
+import { MoodType } from './src/services/MoodFolderService';
 
 // Define the stack navigator parameter list
 type RootStackParamList = {
   Home: undefined;
-  MoodPlayer: { mood?: string; songId?: string };
+  MoodPlayer: { mood?: MoodType; songId?: string };
   Playlist: { playlistId?: string; songs?: any[]; title?: string };
   Settings: undefined;
   FitbitConnect: undefined;
   ManualToken: undefined;
+  MoodFolder: { folderId: string };
+  AllMoodFolders: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -43,6 +50,8 @@ const linking = {
       Settings: 'settings',
       FitbitConnect: 'fitbit-connect',
       ManualToken: 'manual-token',
+      MoodFolder: 'folder',
+      AllMoodFolders: 'folders',
     },
     // Add custom path pattern for auth token
     initialRouteName: 'Home',
@@ -61,8 +70,12 @@ export default function App() {
     // Tell WebBrowser to handle auth session completion
     WebBrowser.maybeCompleteAuthSession();
     
-    // Initialize heart rate service
+    // Initialize services
     HeartRateService.initialize();
+    const musicService = EnhancedMusicService.getInstance();
+    musicService.initialize();
+    const folderService = MoodFolderService.getInstance();
+    folderService.initialize();
     
     // Register a listener for deep links
     const subscription = Linking.addEventListener('url', handleDeepLink);
@@ -80,6 +93,8 @@ export default function App() {
     
     return () => {
       subscription.remove();
+      // Clean up music service
+      musicService.cleanup();
     };
   }, []);
   
@@ -174,7 +189,10 @@ export default function App() {
           if (success) {
             showAuthAlert('Success', 'Fitbit connected successfully via direct token!');
             if (global.navigation) {
-              global.navigation.navigate('Home');
+              global.navigation.reset({
+                index: 0,
+                routes: [{ name: 'Home' }],
+              });
             }
           } else {
             showAuthAlert('Error', 'Failed to use the direct token. Please try again.');
@@ -206,11 +224,14 @@ export default function App() {
           
           // If successful, show a notification or navigate to a specific screen
           if (success) {
-            // Navigate back to home screen
+            // Navigate back to home screen as a fresh navigation stack
             // @ts-ignore - We know navigation is available in the context
             // but TypeScript doesn't know that
             if (global.navigation) {
-              global.navigation.navigate('Home');
+              global.navigation.reset({
+                index: 0,
+                routes: [{ name: 'Home' }],
+              });
             }
             showAuthAlert('Success', 'Fitbit connected successfully!');
             console.log('Authentication successful!');
@@ -278,15 +299,22 @@ export default function App() {
             headerTitleStyle: {
               fontWeight: 'bold',
             },
+            headerBackTitleVisible: false,
           }}>
           <Stack.Screen 
             name="Home" 
             component={HomeScreen} 
-            options={{ title: 'MoodBeats' }}
+            options={({ navigation }) => ({
+              title: 'MoodBeats',
+              headerLeft: () => null,
+              headerShown: true,
+              gestureEnabled: false,
+              animationEnabled: false
+            })}
           />
           <Stack.Screen 
             name="MoodPlayer" 
-            component={MoodPlayerScreen} 
+            component={EnhancedMoodPlayerScreen} 
             options={{ title: 'Now Playing' }}
           />
           <Stack.Screen 
@@ -308,6 +336,16 @@ export default function App() {
             name="ManualToken" 
             component={ManualTokenScreen} 
             options={{ title: 'Manual Token Entry' }}
+          />
+          <Stack.Screen 
+            name="MoodFolder" 
+            component={MoodFolderScreen} 
+            options={{ title: 'Mood Folder' }}
+          />
+          <Stack.Screen 
+            name="AllMoodFolders" 
+            component={AllMoodFoldersScreen} 
+            options={{ title: 'Mood Folders' }}
           />
         </Stack.Navigator>
         
