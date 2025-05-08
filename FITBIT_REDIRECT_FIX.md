@@ -16,7 +16,7 @@ The app was experiencing problems with the Fitbit OAuth flow, where after authen
 
 ### 1. Unified Redirect URI
 
-All parts of the app now consistently use `https://moodbeats.netlify.app/` as the redirect URI:
+All parts of the app now consistently use `https://moodbeats.netlify.app` (without trailing slash) as the redirect URI:
 
 - In `FitbitAuthService.ts`: The redirect URI is set to the Netlify URL
 - In `App.tsx`: Deep linking configuration uses the same URI

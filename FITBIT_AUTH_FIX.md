@@ -5,7 +5,7 @@ This document explains the fixes implemented to resolve the Fitbit authenticatio
 ## Fixed Issues
 
 1. **Redirect URI Mismatch**: The app was configured with different redirect URIs in different places:
-   - Fixed `FitbitAuthService.ts` to use `https://moodmusicapp.netlify.app/` consistently
+   - Fixed `FitbitAuthService.ts` to use `https://moodbeats.netlify.app` consistently
    - Updated `App.tsx` deep linking configuration to match the same URI
    - Added proper URI listing in `app.json`
 

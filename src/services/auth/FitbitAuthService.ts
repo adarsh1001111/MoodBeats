@@ -3,14 +3,13 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Crypto from 'expo-crypto';
-import * as Random from 'expo-random';
 import base64 from 'react-native-base64';
 
 // Constants for Fitbit OAuth
 const CLIENT_ID = '23Q9HX';
 const CLIENT_SECRET = 'e16ec0a44d44f6ae44be87ee88fa3996';
 
-// Use the Netlify site URL that you've created
+// Use the correct Netlify site URL that matches your Fitbit dashboard (with trailing slash)
 const REDIRECT_URI = 'https://moodbeats.netlify.app/';
 
 // Storage keys
@@ -25,7 +24,7 @@ const AUTH_FLOW_CODE_PKCE = 'authorization_code_pkce';
 // Token interface
 export interface ApiToken {
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string; // Made optional for implicit flow
   expiresAt: number;
   userId?: string;
   scope?: string;
@@ -51,18 +50,70 @@ class FitbitAuthService {
   /**
    * Initialize auth service
    */
-  static init() {
+  static async init() {
     if (this.isInitialized) {
       return;
     }
     
     console.log('Initialized Fitbit Auth Service');
     console.log('Using redirect URI:', REDIRECT_URI);
+    console.log('Client ID:', CLIENT_ID);
     
     // Set up linking subscription for deep linking
     Linking.addEventListener('url', this.handleUrl);
     
     this.isInitialized = true;
+    
+    // Check if we have existing tokens that need validation
+    this.validateExistingToken();
+  }
+  
+  /**
+   * Validate any existing token in storage
+   */
+  static async validateExistingToken() {
+    try {
+      const tokenJson = await AsyncStorage.getItem(API_TOKEN_STORAGE_KEY);
+      if (!tokenJson) return;
+      
+      const token: ApiToken = JSON.parse(tokenJson);
+      console.log('Found existing token, checking validity');
+      console.log('Token expires at:', new Date(token.expiresAt).toISOString());
+      console.log('Token scopes:', token.scope || 'none specified');
+      
+      // Check if token is close to expiry
+      const now = Date.now();
+      const tenMinutesInMs = 10 * 60 * 1000;
+      if (token.expiresAt - now < tenMinutesInMs) {
+        console.log('Token expires soon, attempting refresh');
+        await this.refreshAccessToken();
+      }
+      
+      // Validate token with a test API call
+      try {
+        const testResponse = await fetch('https://api.fitbit.com/1/user/-/profile.json', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token.accessToken}`
+          }
+        });
+        
+        if (testResponse.ok) {
+          console.log('Existing token successfully validated');
+        } else {
+          console.error('Existing token validation failed:', testResponse.status);
+          if (testResponse.status === 401) {
+            console.log('Token invalid (401), clearing saved token');
+            await AsyncStorage.removeItem(API_TOKEN_STORAGE_KEY);
+            await AsyncStorage.removeItem(DEVICE_STORAGE_KEY);
+          }
+        }
+      } catch (error) {
+        console.error('Error validating token:', error);
+      }
+    } catch (error) {
+      console.error('Error in validateExistingToken:', error);
+    }
   }
   
   /**
@@ -71,8 +122,34 @@ class FitbitAuthService {
   static async handleUrl(event: { url: string }) {
     console.log('Deep link received:', event.url);
     
-    // Process the URL to extract tokens or auth code
-    await FitbitAuthService.handleAuthorizationCallback(event.url);
+    try {
+      // Process the URL to extract tokens or auth code
+      const success = await FitbitAuthService.handleAuthorizationCallback(event.url);
+      console.log('Authorization callback handled successfully:', success);
+      
+      // If we have a global navigation reference, redirect to home on success
+      if (success && global.navigation) {
+        console.log('Redirecting to home screen after successful auth');
+        setTimeout(() => {
+          global.navigation.reset({
+            index: 0,
+            routes: [{ name: 'Home' }],
+          });
+        }, 1000);
+      }
+    } catch (error) {
+      console.error('Error handling URL:', error);
+    }
+  }
+  
+  /**
+   * Clear all tokens and stored data
+   */
+  static async clearTokens(): Promise<void> {
+    console.log('Clearing all stored tokens and data');
+    await AsyncStorage.removeItem(API_TOKEN_STORAGE_KEY);
+    await AsyncStorage.removeItem(DEVICE_STORAGE_KEY);
+    await AsyncStorage.removeItem(CODE_VERIFIER_STORAGE_KEY);
   }
   
   /**
@@ -84,6 +161,9 @@ class FitbitAuthService {
       console.log('Starting Fitbit authorization with flow:', flowType);
       this.currentAuthFlow = flowType;
       
+      // Clear any existing tokens first
+      await this.clearTokens();
+      
       // Get the authorization URL for the selected flow type
       const authUrl = await this._getAuthorizationUrl(flowType);
       console.log('Opening auth URL:', authUrl);
@@ -91,15 +171,24 @@ class FitbitAuthService {
       // Open the authorization URL in a browser
       const result = await WebBrowser.openAuthSessionAsync(
         authUrl,
-        Linking.createURL('/')
+        Linking.createURL('/'),
+        {
+          showInRecents: true,
+          enableDefaultShareMenu: false
+        }
       );
       
-      console.log('WebBrowser result:', result.type);
+      console.log('WebBrowser result type:', result.type);
+      console.log('WebBrowser result URL:', result.url || 'No URL returned');
       
-      // For authorization_code flow, we need to handle the code exchange separately
-      // but for implicit flow, the token will come through handleUrl callback
+      if (result.type === 'success' && result.url) {
+        // Process the URL to extract tokens or auth code
+        return await this.handleAuthorizationCallback(result.url);
+      } else {
+        console.log('Browser was dismissed without successful auth');
+        return false;
+      }
       
-      return result.type === 'success';
     } catch (error) {
       console.error('Error authorizing with Fitbit:', error);
       return false;
@@ -111,20 +200,43 @@ class FitbitAuthService {
    * @returns string A random string between 43-128 characters
    */
   static async _generateCodeVerifier(): Promise<string> {
-    // Generate random bytes
-    const randomBytes = await Random.getRandomBytesAsync(32);
-    
-    // Convert to base64 and make URL safe
-    const base64String = base64.encodeFromByteArray(randomBytes);
-    const codeVerifier = base64String
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-    
-    // Store the code verifier for later use
-    await AsyncStorage.setItem(CODE_VERIFIER_STORAGE_KEY, codeVerifier);
-    
-    return codeVerifier;
+    try {
+      // Generate random bytes using expo-crypto directly
+      const randomBytes = await Crypto.getRandomBytesAsync(32);
+      
+      // Convert to base64 and make URL safe
+      const base64String = base64.encodeFromByteArray(randomBytes);
+      const codeVerifier = base64String
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+      
+      // Store the code verifier for later use
+      await AsyncStorage.setItem(CODE_VERIFIER_STORAGE_KEY, codeVerifier);
+      
+      return codeVerifier;
+    } catch (error) {
+      console.error('Error generating code verifier:', error);
+      
+      // Fallback method if crypto fails
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+      let result = '';
+      const randomValues = new Uint8Array(43);
+      
+      // Use Math.random as a last resort
+      for (let i = 0; i < 43; i++) {
+        randomValues[i] = Math.floor(Math.random() * 256);
+      }
+      
+      for (let i = 0; i < 43; i++) {
+        result += chars.charAt(randomValues[i] % chars.length);
+      }
+      
+      // Store the fallback code verifier
+      await AsyncStorage.setItem(CODE_VERIFIER_STORAGE_KEY, result);
+      
+      return result;
+    }
   }
   
   /**
@@ -148,12 +260,40 @@ class FitbitAuthService {
   }
   
   /**
+   * Generate a random state string for OAuth 2.0
+   * @returns A random string for state parameter
+   */
+  static async _generateRandomState(): Promise<string> {
+    try {
+      // Use expo-crypto to generate random bytes
+      const randomBytes = await Crypto.getRandomBytesAsync(16);
+      // Convert to a hexadecimal string
+      return Array.from(randomBytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+    } catch (error) {
+      console.error('Error generating random state:', error);
+      
+      // Fallback method using Math.random if crypto fails
+      let state = '';
+      const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      
+      for (let i = 0; i < 32; i++) {
+        state += characters.charAt(Math.floor(Math.random() * characters.length));
+      }
+      
+      return state;
+    }
+  }
+  
+  /**
    * Get the authorization URL for the specified flow type
    */
   static async _getAuthorizationUrl(flowType: string): Promise<string> {
     // Common parameters
     const scopes = encodeURIComponent('heartrate activity profile settings sleep');
-    const state = Math.random().toString(36).substring(2, 15);
+    // Generate state using our new method instead of Math.random
+    const state = await this._generateRandomState();
     
     // Handle different flow types
     if (flowType === AUTH_FLOW_CODE_PKCE) {
@@ -188,35 +328,61 @@ class FitbitAuthService {
       
       // Build the token request
       const tokenUrl = 'https://api.fitbit.com/oauth2/token';
-      const headers = {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      };
+      
+      // Properly encode client ID & secret for Basic auth as required by Fitbit
+      const credentials = base64.encode(`${CLIENT_ID}:${CLIENT_SECRET}`);
+      
+      // First, let's log what's being sent for debugging
+      console.log('Token request details:');
+      console.log('- URL:', tokenUrl);
+      console.log('- Auth header:', `Basic ${credentials.substring(0, 5)}...`);
+      console.log('- Code verifier length:', codeVerifier.length);
+      console.log('- Redirect URI:', REDIRECT_URI);
       
       // Create the request body
-      const body = new URLSearchParams();
-      body.append('client_id', CLIENT_ID);
-      body.append('grant_type', 'authorization_code');
-      body.append('code', code);
-      body.append('redirect_uri', REDIRECT_URI);
-      body.append('code_verifier', codeVerifier);
+      const formData = new URLSearchParams();
+      formData.append('client_id', CLIENT_ID);
+      formData.append('grant_type', 'authorization_code');
+      formData.append('code', code);
+      formData.append('redirect_uri', REDIRECT_URI);
+      formData.append('code_verifier', codeVerifier);
+      
+      // Set up headers exactly as Fitbit requires
+      const headers = {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      };
+      
+      console.log('Making token exchange request');
       
       // Make the token request
       const response = await fetch(tokenUrl, {
         method: 'POST',
         headers: headers,
-        body: body.toString(),
+        body: formData.toString(),
       });
+      
+      // Log full response for debugging
+      console.log('Token exchange response status:', response.status);
+      const responseText = await response.text();
+      console.log('Token exchange response text:', responseText);
       
       // Check if the request was successful
       if (!response.ok) {
         console.error(`Token exchange failed with status ${response.status}: ${response.statusText}`);
-        const errorText = await response.text();
-        console.error('Error details:', errorText);
+        console.error('Error details:', responseText);
         return false;
       }
       
       // Parse the token response
-      const tokenData = await response.json();
+      let tokenData;
+      try {
+        tokenData = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Error parsing token response:', parseError);
+        console.error('Invalid JSON:', responseText);
+        return false;
+      }
       console.log('Token exchange successful');
       
       if (!tokenData.access_token) {
@@ -230,8 +396,28 @@ class FitbitAuthService {
         refreshToken: tokenData.refresh_token || '',
         expiresAt: Date.now() + (tokenData.expires_in * 1000),
         userId: tokenData.user_id,
-        scope: tokenData.scope
+        scope: tokenData.scope,
+        tokenType: tokenData.token_type || 'Bearer' // Store token type
       };
+      
+      // Attempt to make an API call to check if the token works
+      console.log('Testing token with Fitbit API');
+      const testResponse = await fetch('https://api.fitbit.com/1/user/-/profile.json', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${tokenData.access_token}`
+        }
+      });
+      
+      console.log('Token test response:', testResponse.status);
+      
+      if (!testResponse.ok) {
+        console.error('Token appears valid but API test failed:', testResponse.status);
+        const errorText = await testResponse.text();
+        console.error('API error details:', errorText);
+      } else {
+        console.log('Token successfully validated with API');
+      }
       
       console.log('Storing token data - Expires at:', new Date(tokenToStore.expiresAt).toISOString());
       await AsyncStorage.setItem(API_TOKEN_STORAGE_KEY, JSON.stringify(tokenToStore));
@@ -269,6 +455,7 @@ class FitbitAuthService {
       const tokenUrl = 'https://api.fitbit.com/oauth2/token';
       const headers = {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${base64.encode(`${CLIENT_ID}:${CLIENT_SECRET}`)}`
       };
       
       // Create the request body
@@ -283,6 +470,9 @@ class FitbitAuthService {
         headers: headers,
         body: body.toString(),
       });
+      
+      // Log the full response for debugging
+      console.log('Token refresh response status:', response.status);
       
       // Check if the request was successful
       if (!response.ok) {
@@ -388,106 +578,27 @@ class FitbitAuthService {
       console.log('Processing Implicit Grant callback');
       
       // Direct token extraction attempt first
-      const directTokenMatch = url.match(/access_token=([^&#]+)/);
-      if (directTokenMatch && directTokenMatch[1]) {
-        console.log('Directly found access_token via regex');
-        const accessToken = directTokenMatch[1];
-        const expiresInMatch = url.match(/expires_in=([^&#]+)/);
-        const expiresIn = expiresInMatch ? expiresInMatch[1] : '31536000';
-        const userIdMatch = url.match(/user_id=([^&#]+)/);
-        const userId = userIdMatch ? userIdMatch[1] : undefined;
-        const scopeMatch = url.match(/scope=([^&#]+)/);
-        const scope = scopeMatch ? decodeURIComponent(scopeMatch[1]) : undefined;
-        
-        // Store token directly
-        const tokenData: ApiToken = {
-          accessToken: accessToken,
-          refreshToken: '', // No refresh token in implicit grant
-          expiresAt: Date.now() + (parseInt(expiresIn) * 1000),
-          userId: userId,
-          scope: scope
-        };
-        
-        console.log('Storing directly extracted token - Expires at:', new Date(tokenData.expiresAt).toISOString());
-        await AsyncStorage.setItem(API_TOKEN_STORAGE_KEY, JSON.stringify(tokenData));
-        
-        try {
-          // Get user profile to store as "device"
-          await this._getUserProfile();
-          return true;
-        } catch (profileError) {
-          console.error('Error getting profile with directly extracted token, but will continue:', profileError);
-          // Even if profile fails, the token might be valid
-          return true;
-        }
-      }
-      
-      // If direct extraction failed, try standard parsing methods
-      // Parse the URL to extract tokens from either fragment or query string
-      let paramString = '';
-      
-      // Try multiple formats to increase compatibility
-      // 1. Standard OAuth format with hash fragment
-      if (url.includes('#access_token=')) {
-        paramString = url.split('#')[1];
-        console.log('Found token in hash fragment');
-      }
-      // 2. Format where the hash is replaced with a query string
-      else if (url.includes('?access_token=')) {
-        paramString = url.split('?')[1];
-        console.log('Found token in query parameters');
-      }
-      // 3. Format where the token might be in a nested part of the URL
-      else {
-        // Extract the token portion from anywhere in the URL
-        const tokenMatch = url.match(/[#?&]access_token=([^&]+)/);
-        if (tokenMatch && tokenMatch[1]) {
-          // Reconstruct the full parameter string
-          const startIndex = url.indexOf(tokenMatch[0]);
-          paramString = url.substring(startIndex + 1); // +1 to skip the # or ? character
-          console.log('Found token in URL using regex match');
-        }
-      }
-      
-      console.log('Parameter string found:', paramString ? 'Yes' : 'No');
-      
-      if (!paramString) {
-        console.error('No parameter string found in URL even though access_token is present');
-        // Try one more approach - just extract all parameters from the URL
-        const allParams = url.split(/[#?&]/).filter(part => part.includes('='));
-        if (allParams.length > 0) {
-          paramString = allParams.join('&');
-          console.log('Reconstructed parameters from URL parts');
-        } else {
-          return false;
-        }
-      }
-      
-      // Parse the parameters using URLSearchParams for reliable parsing
-      const params = new URLSearchParams(paramString);
-      
-      const accessToken = params.get('access_token');
-      const expiresIn = params.get('expires_in') || '31536000'; // Default to 1 year
-      const userId = params.get('user_id');
-      const scope = params.get('scope');
-      
-      console.log('Parsed tokens - Access Token:', accessToken ? 'Present (hidden)' : 'Missing');
-      console.log('Parsed tokens - Expires In:', expiresIn);
-      console.log('Parsed tokens - User ID:', userId);
-      console.log('Parsed tokens - Scope:', scope);
-      
-      if (!accessToken) {
-        console.error('Invalid token data in callback URL');
+      const accessTokenMatch = url.match(/access_token=([^&#]+)/);
+      if (!accessTokenMatch || !accessTokenMatch[1]) {
+        console.error('No access token found in URL');
         return false;
       }
       
-      // Store the tokens (note: refresh token is not provided in implicit grant)
+      const accessToken = accessTokenMatch[1];
+      const expiresInMatch = url.match(/expires_in=([^&#]+)/);
+      const expiresIn = expiresInMatch ? expiresInMatch[1] : '31536000';
+      const userIdMatch = url.match(/user_id=([^&#]+)/);
+      const userId = userIdMatch ? userIdMatch[1] : undefined;
+      const scopeMatch = url.match(/scope=([^&#]+)/);
+      const scope = scopeMatch ? decodeURIComponent(scopeMatch[1]) : undefined;
+      
+      // Store token directly
       const tokenData: ApiToken = {
         accessToken: accessToken,
         refreshToken: '', // No refresh token in implicit grant
-        expiresAt: Date.now() + (parseInt(expiresIn) * 1000), // Convert seconds to milliseconds
-        userId: userId || undefined,
-        scope: scope || undefined
+        expiresAt: Date.now() + (parseInt(expiresIn) * 1000),
+        userId: userId,
+        scope: scope
       };
       
       console.log('Storing token data - Expires at:', new Date(tokenData.expiresAt).toISOString());
@@ -495,7 +606,6 @@ class FitbitAuthService {
       
       // Get user profile to store as "device"
       await this._getUserProfile();
-      
       return true;
     } catch (error) {
       console.error('Error handling Implicit Grant callback:', error);
@@ -509,11 +619,13 @@ class FitbitAuthService {
   static async _handleAuthorizationCodeCallback(url: string): Promise<boolean> {
     try {
       console.log('Processing Authorization Code callback');
+      console.log('Full callback URL:', url); // Log the full URL for debugging
       
       // Extract the authorization code from the URL
       const codeMatch = url.match(/[?&]code=([^&]+)/);
       if (!codeMatch || !codeMatch[1]) {
         console.error('No authorization code found in URL');
+        console.log('URL structure:', url.split(/[?&#]/)); // Log URL structure for debugging
         return false;
       }
       
@@ -545,7 +657,8 @@ class FitbitAuthService {
       const response = await fetch('https://api.fitbit.com/1/user/-/profile.json', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token.accessToken}`
+          'Authorization': `Bearer ${token.accessToken}`,
+          'Accept': 'application/json'
         }
       });
       
@@ -698,7 +811,8 @@ class FitbitAuthService {
         {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${token.accessToken}`
+            'Authorization': `Bearer ${token.accessToken}`,
+            'Accept': 'application/json'
           }
         }
       );
@@ -808,21 +922,37 @@ class FitbitAuthService {
       }
       
       const token: ApiToken = JSON.parse(tokenJson);
+      console.log('Token details:', {
+        accessTokenLength: token.accessToken ? token.accessToken.length : 0,
+        hasRefreshToken: !!token.refreshToken,
+        expiryDate: new Date(token.expiresAt).toISOString(),
+        scope: token.scope || 'not specified'
+      });
       
-      // Check if token is expired
-      if (token.expiresAt < Date.now()) {
-        console.log('Access token has expired');
+      // Check if token is expired or will expire in the next 10 minutes
+      const tenMinutesInMs = 10 * 60 * 1000;
+      if (token.expiresAt < Date.now() + tenMinutesInMs) {
+        console.log('Access token has expired or will expire soon');
         
         // Try to refresh token if available
         if (token.refreshToken) {
+          console.log('Attempting to refresh token before heart rate request');
           const refreshed = await this.refreshAccessToken();
           if (refreshed) {
-            console.log('Token refreshed, retrying heart rate request');
-            return await this.getHeartRate();
+            console.log('Token refreshed successfully, retrying heart rate request');
+            // Get updated token after refresh
+            const updatedTokenJson = await AsyncStorage.getItem(API_TOKEN_STORAGE_KEY);
+            if (updatedTokenJson) {
+              const updatedToken = JSON.parse(updatedTokenJson);
+              console.log('Using new access token, expires at:', new Date(updatedToken.expiresAt).toISOString());
+              return await this.getHeartRate();
+            }
+          } else {
+            console.error('Token refresh failed, cannot continue with heart rate request');
           }
         }
         
-        throw new Error('Access token has expired');
+        throw new Error('Access token has expired and refresh failed');
       }
       
       // Get today's date in the format YYYY-MM-DD
@@ -833,14 +963,15 @@ class FitbitAuthService {
       // This requires personal app type or special permission
       try {
         const intradayResponse = await fetch(
-          `https://api.fitbit.com/1/user/-/activities/heart/date/${today}/1d/1min.json`,
-          {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token.accessToken}`
-            }
+        `https://api.fitbit.com/1/user/-/activities/heart/date/${today}/1d/1min.json`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token.accessToken}`,
+            'Accept': 'application/json'
           }
-        );
+        }
+      );
         
         if (intradayResponse.ok) {
           const data = await intradayResponse.json();
@@ -873,13 +1004,14 @@ class FitbitAuthService {
         // Fall back to regular heart rate endpoint
       }
       
-      // Fall back to regular heart rate time series endpoint
+      // Call Fitbit API to get heart rate data
       const response = await fetch(
         `https://api.fitbit.com/1/user/-/activities/heart/date/${today}/1d.json`,
         {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${token.accessToken}`
+            'Authorization': `Bearer ${token.accessToken}`,
+            'Accept': 'application/json'
           }
         }
       );

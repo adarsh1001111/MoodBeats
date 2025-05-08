@@ -20,6 +20,7 @@ type RootStackParamList = {
   Playlist: { playlistId?: string; songs?: any[]; title?: string };
   Settings: undefined;
   FitbitConnect: undefined;
+  MLSettings: undefined;
 };
 
 type SettingsScreenNavigationProp = StackNavigationProp<
@@ -266,6 +267,22 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.settingTitle}>Fitbit Connection</Text>
             <Text style={styles.settingDescription}>
               {fitbitConnected ? 'Connected' : 'Not connected'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="#bdbdbd" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.settingItem}
+          onPress={() => navigation.navigate('MLSettings')}
+        >
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="analytics-outline" size={24} color="#6200ea" />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingTitle}>ML Model Settings</Text>
+            <Text style={styles.settingDescription}>
+              Configure ML models for mood prediction
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={24} color="#bdbdbd" />

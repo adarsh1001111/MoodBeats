@@ -1,3 +1,9 @@
+// Import our ExpoRandom shim first to ensure it is available before any other code runs
+import "./src/utils/ExpoRandomShim";
+
+// Import our ExpoRandom shim first to ensure it's available before any other code runs
+import './src/utils/ExpoRandomShim';
+
 import React, { useEffect, useState } from 'react';
 import { StatusBar, Alert, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -17,6 +23,7 @@ import FitbitConnectScreen from './src/screens/FitbitConnectScreen';
 import ManualTokenScreen from './src/screens/ManualTokenScreen';
 import MoodFolderScreen from './src/screens/MoodFolderScreen';
 import AllMoodFoldersScreen from './src/screens/AllMoodFoldersScreen';
+import MLSettingsScreen from './src/screens/MLSettingsScreen';
 
 // Import services
 import HeartRateService from './src/services/HeartRateService';

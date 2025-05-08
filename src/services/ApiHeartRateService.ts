@@ -15,6 +15,8 @@ export interface ApiToken {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+  userId?: string;
+  scope?: string;
 }
 
 /**
@@ -73,18 +75,11 @@ class ApiHeartRateService {
    */
   static async refreshToken(refreshToken: string): Promise<boolean> {
     try {
-      // In a real app, you would make a request to the Fitbit token endpoint
-      // https://api.fitbit.com/oauth2/token
+      // Import the auth service method to use the real token refresh
+      const FitbitAuthService = require('./auth/FitbitAuthService').default;
       
-      // For demo purposes, we'll simulate a successful refresh
-      const newToken: ApiToken = {
-        accessToken: 'simulated_new_access_token',
-        refreshToken: 'simulated_new_refresh_token',
-        expiresAt: Date.now() + 3600 * 1000, // 1 hour from now
-      };
-      
-      await AsyncStorage.setItem(API_TOKEN_STORAGE_KEY, JSON.stringify(newToken));
-      return true;
+      // Use the actual token refresh from the auth service instead of simulation
+      return await FitbitAuthService.refreshAccessToken();
     } catch (error) {
       console.error('Error refreshing token:', error);
       return false;
@@ -166,23 +161,25 @@ class ApiHeartRateService {
   
   /**
    * Authorize with Fitbit API
-   * In a real app, this would open the OAuth flow
+   * This now uses the real OAuth flow from FitbitAuthService
    */
   static async authorize(): Promise<boolean> {
     try {
-      // For demo purposes, we'll simulate a successful authorization
-      const token: ApiToken = {
-        accessToken: 'simulated_access_token',
-        refreshToken: 'simulated_refresh_token',
-        expiresAt: Date.now() + 3600 * 1000, // 1 hour from now
-      };
+      // Import the auth service to use the real OAuth flow
+      const FitbitAuthService = require('./auth/FitbitAuthService').default;
       
-      await AsyncStorage.setItem(API_TOKEN_STORAGE_KEY, JSON.stringify(token));
+      // Initialize the auth service
+      FitbitAuthService.init();
       
-      // Stop simulation if it was running
-      this.stopSimulation();
+      // Use the OAuth flow with PKCE for better security
+      const success = await FitbitAuthService.authorize('authorization_code_pkce');
       
-      return true;
+      if (success) {
+        // Stop simulation if it was running
+        this.stopSimulation();
+      }
+      
+      return success;
     } catch (error) {
       console.error('Error authorizing with Fitbit:', error);
       return false;
@@ -219,30 +216,37 @@ class ApiHeartRateService {
       // Check if we have internet connectivity
       const isConnected = await this.checkConnectivity();
       if (!isConnected) {
+        console.log('No internet connection, using stored or simulated data');
         throw new Error('No internet connection');
       }
       
       // Check if we have valid tokens
       const hasTokens = await this.hasValidTokens();
       if (!hasTokens) {
+        console.log('Not authorized with Fitbit API, using stored or simulated data');
         throw new Error('Not authorized with Fitbit API');
       }
       
-      // Get token
-      const tokenJson = await AsyncStorage.getItem(API_TOKEN_STORAGE_KEY);
-      const token: ApiToken = JSON.parse(tokenJson!);
+      // Import the FitbitAuthService to use its methods
+      const FitbitAuthService = require('./auth/FitbitAuthService').default;
       
       try {
-        // In a real app, you would make a request to the Fitbit API
-        // https://api.fitbit.com/1/user/-/activities/heart/date/today/1d/1min.json
+        // Use the actual Fitbit API via FitbitAuthService instead of simulation
+        const heartRateData = await FitbitAuthService.getHeartRate();
         
-        // For demo purposes, we'll simulate API data
+        if (heartRateData && heartRateData.value) {
+          // Store the heart rate
+          this.storeHeartRate(heartRateData.value);
+          this.lastHeartRate = heartRateData.value;
+          
+          return heartRateData.value;
+        }
+        
+        // If no heart rate from API, fall back to simulation
+        console.log('No heart rate data from API, using simulation');
         const heartRate = this.simulateApiResponse();
-        
-        // Store the heart rate
         this.storeHeartRate(heartRate);
         this.lastHeartRate = heartRate;
-        
         return heartRate;
       } catch (apiError) {
         console.error('Error fetching heart rate from API:', apiError);
