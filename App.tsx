@@ -18,17 +18,19 @@ import * as WebBrowser from 'expo-web-browser';
 import HomeScreen from './src/screens/HomeScreen';
 import EnhancedMoodPlayerScreen from './src/screens/EnhancedMoodPlayerScreen';
 import PlaylistScreen from './src/screens/PlaylistScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
+import SettingsScreen from './src/screens/SettingsScreen.fixed';
 import FitbitConnectScreen from './src/screens/FitbitConnectScreen';
 import ManualTokenScreen from './src/screens/ManualTokenScreen';
 import MoodFolderScreen from './src/screens/MoodFolderScreen';
 import AllMoodFoldersScreen from './src/screens/AllMoodFoldersScreen';
 import MLSettingsScreen from './src/screens/MLSettingsScreen';
+import EnhancedMoodAnalysisScreen from './src/screens/EnhancedMoodAnalysisScreen';
 
 // Import services
 import HeartRateService from './src/services/HeartRateService';
 import EnhancedMusicService from './src/services/EnhancedMusicService';
 import MoodFolderService from './src/services/MoodFolderService';
+import AccelerometerService from './src/services/AccelerometerService';
 import { MoodType } from './src/services/MoodFolderService';
 
 // Define the stack navigator parameter list
@@ -41,6 +43,7 @@ type RootStackParamList = {
   ManualToken: undefined;
   MoodFolder: { folderId: string };
   AllMoodFolders: undefined;
+  MoodAnalysis: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -84,6 +87,16 @@ export default function App() {
     const folderService = MoodFolderService.getInstance();
     folderService.initialize();
     
+    // Initialize accelerometer service
+    AccelerometerService.initialize().then(available => {
+      if (available) {
+        console.log('Accelerometer service initialized successfully');
+        AccelerometerService.start();
+      } else {
+        console.warn('Accelerometer is not available on this device');
+      }
+    });
+    
     // Register a listener for deep links
     const subscription = Linking.addEventListener('url', handleDeepLink);
     
@@ -102,6 +115,8 @@ export default function App() {
       subscription.remove();
       // Clean up music service
       musicService.cleanup();
+      // Stop accelerometer service
+      AccelerometerService.stop();
     };
   }, []);
   
@@ -353,6 +368,11 @@ export default function App() {
             name="AllMoodFolders" 
             component={AllMoodFoldersScreen} 
             options={{ title: 'Mood Folders' }}
+          />
+          <Stack.Screen 
+            name="MoodAnalysis" 
+            component={EnhancedMoodAnalysisScreen} 
+            options={{ title: 'Mood Analysis' }}
           />
         </Stack.Navigator>
         

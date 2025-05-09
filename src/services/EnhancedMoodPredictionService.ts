@@ -1,14 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MoodType } from './MoodFolderService';
 import HeartRateService from './HeartRateService';
+import MLModelService from './MLModelService';
 
 // Define the mood prediction method types
 export type PredictionMethod = 'local' | 'ai-model';
 
 // API endpoint for the Flask server with XGBoost model integration
-// Replace this with your actual laptop's IP address
-// e.g. 'http://192.168.1.123:5000/api'
-const API_URL = 'http://192.168.29.142:5000/api';
+// Will be retrieved from MLModelService
 
 // Define accelerometer data structure
 export interface AccelerometerData {
@@ -35,18 +34,8 @@ class EnhancedMoodPredictionService {
    * @returns Promise with the API endpoint URL
    */
   static async getApiEndpoint(): Promise<string> {
-    // Try to get the stored API URL first
-    try {
-      const storedUrl = await AsyncStorage.getItem('ml_api_url');
-      if (storedUrl) {
-        return storedUrl;
-      }
-    } catch (error) {
-      console.error('Error getting stored API URL:', error);
-    }
-    
-    // Fall back to the default URL
-    return API_URL;
+    // Use MLModelService to get the API URL
+    return await MLModelService.getApiUrl();
   }
   
   /**
@@ -60,11 +49,20 @@ class EnhancedMoodPredictionService {
     
     // If switching to ML model, check if API is available
     if (method === 'ai-model') {
-    const isAvailable = await this.isAPIAvailable();
-    console.log(`ML model API available: ${isAvailable}`);
-    if (!isAvailable) {
-    console.warn('ML model API is not available, falling back to local prediction');
-        // Don't change the setting here, just warn the user
+      const isAvailable = await this.isAPIAvailable();
+      console.log(`ML model API available: ${isAvailable}`);
+      if (!isAvailable) {
+        console.warn('ML model API is not available, falling back to local prediction');
+        // Try to auto-detect the API URL
+        try {
+          const detectedUrl = await MLModelService.autoDetectApiUrl();
+          console.log(`Auto-detected API URL: ${detectedUrl}`);
+          // Check if the auto-detected URL works
+          const retryAvailable = await this.isAPIAvailable();
+          console.log(`ML model API available after auto-detection: ${retryAvailable}`);
+        } catch (e) {
+          console.error('Error auto-detecting API URL:', e);
+        }
       }
     }
   }
@@ -172,36 +170,54 @@ class EnhancedMoodPredictionService {
       
       console.log(`Sending prediction request with HR: ${latestHR} and ${accData.length} acc readings`);
       
-      // Get the API endpoint
-      const apiEndpoint = await this.getApiEndpoint();
-      
-      const response = await fetch(`${apiEndpoint}/predict-mood`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          heart_rate: latestHR,
-          accelerometer: accData
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+      // Use MLModelService to predict mood
+      try {
+        const detailedPrediction = await MLModelService.getDetailedMoodPrediction(latestHR, accData);
+        console.log('AI model prediction result:', detailedPrediction);
+        
+        // Convert the API response to our MoodType
+        const moodMapping: { [key: string]: MoodType } = {
+          'Happy': 'Happy',
+          'Angry': 'Angry',
+          'Sad': 'Sad',
+          'Relaxed': 'Relaxed',
+        };
+        
+        return moodMapping[detailedPrediction.primary_mood] || 'Happy'; // Default to Happy if mapping fails
+      } catch (mlError) {
+        console.error('Error using MLModelService for prediction:', mlError);
+        
+        // If MLModelService fails, fall back to direct API call
+        const apiEndpoint = await this.getApiEndpoint();
+        
+        const response = await fetch(`${apiEndpoint}/predict-mood`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            heart_rate: latestHR,
+            accelerometer: accData
+          }),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('AI model prediction result (direct API):', data);
+        
+        // Convert the API response to our MoodType
+        const moodMapping: { [key: string]: MoodType } = {
+          'Happy': 'Happy',
+          'Angry': 'Angry',
+          'Sad': 'Sad',
+          'Relaxed': 'Relaxed',
+        };
+        
+        return moodMapping[data.primary_mood] || 'Happy'; // Default to Happy if mapping fails
       }
-      
-      const data = await response.json();
-      console.log('AI model prediction result:', data);
-      
-      // Convert the API response to our MoodType
-      const moodMapping: { [key: string]: MoodType } = {
-        'Happy': 'Happy',
-        'Angry': 'Angry',
-        'Sad': 'Sad',
-        'Relaxed': 'Relaxed',
-      };
-      
-      return moodMapping[data.primary_mood] || 'Happy'; // Default to Happy if mapping fails
     } catch (error) {
       console.error('Error calling prediction API:', error);
       // Fallback to local prediction on API error
@@ -216,25 +232,8 @@ class EnhancedMoodPredictionService {
    */
   static async getSongRecommendations(mood: MoodType): Promise<any[]> {
     try {
-      // Get the API endpoint
-      const apiEndpoint = await this.getApiEndpoint();
-      
-      const response = await fetch(`${apiEndpoint}/recommend-songs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ mood }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('Song recommendations:', data);
-      
-      return data.recommendations || [];
+      // Use MLModelService to get recommendations
+      return await MLModelService.getSongRecommendations(mood);
     } catch (error) {
       console.error('Error getting song recommendations:', error);
       return [];
@@ -248,19 +247,8 @@ class EnhancedMoodPredictionService {
    */
   static async getSongDetails(songId: number): Promise<any> {
     try {
-      // Get the API endpoint
-      const apiEndpoint = await this.getApiEndpoint();
-      
-      const response = await fetch(`${apiEndpoint}/song-details/${songId}`);
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('Song details:', data);
-      
-      return data;
+      // Use MLModelService to get song details
+      return await MLModelService.getSongDetails(songId);
     } catch (error) {
       console.error('Error getting song details:', error);
       return null;
@@ -273,16 +261,73 @@ class EnhancedMoodPredictionService {
    */
   static async isAPIAvailable(): Promise<boolean> {
     try {
-      // Get the API endpoint
-      const apiEndpoint = await this.getApiEndpoint();
-      
-      const response = await fetch(`${apiEndpoint}/health`, { method: 'GET' });
-      const data = await response.json();
-      console.log('ML API health status:', data);
-      return response.ok && data.model1 === 'loaded';
+      return await MLModelService.isApiAvailable();
     } catch (error) {
       console.error('ML API health check failed:', error);
       return false;
+    }
+  }
+  
+  /**
+   * Analyze mood with both ML models, showing individual and combined predictions
+   * @param heartRate Heart rate value
+   * @returns Promise with detailed mood analysis
+   */
+  static async analyzeMoodWithML(heartRate: number): Promise<any> {
+    try {
+      // Try to get latest heart rate if we can
+      let latestHR: number;
+      try {
+        latestHR = await HeartRateService.getLatestHeartRate();
+        console.log('Using latest heart rate from API:', latestHR);
+      } catch (err) {
+        // Fallback to provided heart rate
+        latestHR = heartRate;
+        console.log('Using provided heart rate:', heartRate);
+      }
+      
+      // Get accelerometer data from cache
+      const accData = this.getAccelerometerData();
+      
+      // Use MLModelService to get combined prediction
+      return await MLModelService.analyzeMoodWithBothModels(latestHR, accData);
+    } catch (error) {
+      console.error('Error analyzing mood with ML models:', error);
+      
+      // Fallback to local prediction
+      let primaryMood: MoodType = 'Happy';
+      let secondaryMood: MoodType = 'Relaxed';
+      
+      // Simple rules based on heart rate
+      if (heartRate < 65) {
+        primaryMood = 'Relaxed';
+        secondaryMood = 'Sad';
+      } else if (heartRate >= 65 && heartRate < 75) {
+        primaryMood = 'Sad';
+        secondaryMood = 'Relaxed';
+      } else if (heartRate >= 75 && heartRate < 90) {
+        primaryMood = 'Happy';
+        secondaryMood = 'Relaxed';
+      } else {
+        primaryMood = 'Angry';
+        secondaryMood = 'Happy';
+      }
+      
+      // Return fallback prediction
+      return {
+        primaryMood,
+        secondaryMood,
+        confidence: {
+          'Happy': primaryMood === 'Happy' ? 0.5 : 0.2,
+          'Relaxed': primaryMood === 'Relaxed' ? 0.5 : 0.2,
+          'Sad': primaryMood === 'Sad' ? 0.5 : 0.2,
+          'Angry': primaryMood === 'Angry' ? 0.5 : 0.1
+        },
+        model1Prediction: primaryMood,
+        model2Prediction: secondaryMood,
+        heartRate: heartRate,
+        timestamp: Date.now()
+      };
     }
   }
 }

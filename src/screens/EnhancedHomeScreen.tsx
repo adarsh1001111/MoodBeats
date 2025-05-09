@@ -30,6 +30,7 @@ type RootStackParamList = {
   FitbitConnect: undefined;
   MoodFolder: { folderId: string };
   AllMoodFolders: undefined;
+  MoodAnalysis: { useML?: boolean };
 };
 
 type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
@@ -265,6 +266,16 @@ const EnhancedHomeScreen: React.FC<Props> = ({ navigation }) => {
       >
         {renderMoodCard()}
         
+        {fitbitConnected && (
+          <TouchableOpacity 
+            style={styles.analyzeMLButton}
+            onPress={() => navigation.navigate('MoodAnalysis', { useML: true })}
+          >
+            <Ionicons name="pulse-outline" size={24} color="#fff" />
+            <Text style={styles.analyzeMLText}>Analyze Mood with ML Models</Text>
+          </TouchableOpacity>
+        )}
+        
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Mood Folders</Text>
@@ -336,6 +347,27 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  analyzeMLButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#009688',
+    margin: 16,
+    marginTop: 0,
+    padding: 12,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  analyzeMLText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
   },
   scrollContent: {
     paddingBottom: 20,  // Add padding to ensure content doesn't get cut off

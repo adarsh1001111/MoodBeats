@@ -1,4 +1,83 @@
-import React, { useState, useEffect } from 'react';
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Mood Prediction</Text>
+        
+        {renderSettingItem(
+          'analytics-outline',
+          'Use ML Model',
+          'Use advanced ML models for more accurate mood prediction',
+          true,
+          useMLModel,
+          handleToggleMLModel
+        )}
+        
+        {useMLModel && renderActionItem(
+          'pulse-outline',
+          'Analyze Mood with ML',
+          'Run both models to analyze your current mood',
+          () => navigation.navigate('MoodAnalysis', { useML: true })
+        )}
+        
+        <View style={styles.settingItem}>
+          <View style={styles.settingIconContainer}>
+            <Ionicons name="cloud-outline" size={24} color="#6200ea" />
+          </View>
+          <View style={styles.settingContent}>
+            <Text style={styles.settingTitle}>ML Server Status</Text>
+            <Text style={styles.settingDescription}>
+              {isCheckingServer
+                ? 'Checking server status...'
+                : mlServerAvailable
+                ? 'Connected and available'
+                : 'Not connected or server unavailable'}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {isCheckingServer ? (
+              <ActivityIndicator size="small" color="#6200ea" />
+            ) : (
+              <>
+                {mlServerAvailable ? (
+                  <Ionicons name="checkmark-circle" size={24} color="#4caf50" />
+                ) : (
+                  <TouchableOpacity onPress={openApiEndpointModal}>
+                    <Ionicons name="settings-outline" size={24} color="#6200ea" />
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      </View>  const handleToggleMLModel = async (value: boolean) => {
+    setUseMLModel(value);
+    
+    // Update the EnhancedMoodPredictionService settings
+    const newMethod = value ? 'ai-model' : 'local';
+    await EnhancedMoodPredictionService.setPredictionMethod(newMethod);
+    
+    // If we're turning on ML model, check if the server is available
+    if (value && !mlServerAvailable) {
+      checkMLServerStatus();
+    }
+    
+    saveSettings();
+  };
+  
+  const handleSaveApiEndpoint = async () => {
+    try {
+      await AsyncStorage.setItem('ml_api_url', apiEndpoint);
+      setShowApiModal(false);
+      
+      // Check if the new endpoint is working
+      checkMLServerStatus();
+    } catch (error) {
+      console.error('Error saving API endpoint:', error);
+      Alert.alert('Error', 'Failed to save API endpoint');
+    }
+  };
+  
+  const openApiEndpointModal = () => {
+    setShowApiModal(true);
+  };import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,11 +86,14 @@ import {
   Switch,
   ScrollView,
   Alert,
+  TextInput,
+  Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
 import HeartRateService from '../services/HeartRateService';
+import EnhancedMoodPredictionService from '../services/EnhancedMoodPredictionService';
 
 // Define the types for our navigation props
 type RootStackParamList = {
@@ -41,6 +123,7 @@ interface UserSettings {
   autoPlayEnabled: boolean;
   highQualityStreaming: boolean;
   showSensorData: boolean;
+  useMLModel: boolean;
 }
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
@@ -53,10 +136,17 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(true);
   const [highQualityStreaming, setHighQualityStreaming] = useState<boolean>(false);
   const [showSensorData, setShowSensorData] = useState<boolean>(true);
+  const [useMLModel, setUseMLModel] = useState<boolean>(false);
+  const [mlServerAvailable, setMlServerAvailable] = useState<boolean>(false);
+  const [isCheckingServer, setIsCheckingServer] = useState<boolean>(false);
+  const [showApiModal, setShowApiModal] = useState<boolean>(false);
+  const [apiEndpoint, setApiEndpoint] = useState<string>('');
   
   useEffect(() => {
     loadSettings();
     checkFitbitConnection();
+    loadMLSettings();
+    checkMLServerStatus();
   }, []);
   
   const loadSettings = async () => {
@@ -71,12 +161,40 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         setAutoPlayEnabled(parsedSettings.autoPlayEnabled ?? true);
         setHighQualityStreaming(parsedSettings.highQualityStreaming ?? false);
         setShowSensorData(parsedSettings.showSensorData ?? true);
+        setUseMLModel(parsedSettings.useMLModel ?? false);
       }
     } catch (error) {
       console.error('Error loading settings:', error);
     }
     
     setIsLoading(false);
+  };
+  
+  const loadMLSettings = async () => {
+    try {
+      // Get the current prediction method
+      const method = await EnhancedMoodPredictionService.getPredictionMethod();
+      setUseMLModel(method === 'ai-model');
+      
+      // Get the API endpoint
+      const endpoint = await EnhancedMoodPredictionService.getApiEndpoint();
+      setApiEndpoint(endpoint);
+    } catch (error) {
+      console.error('Error loading ML settings:', error);
+    }
+  };
+  
+  const checkMLServerStatus = async () => {
+    try {
+      setIsCheckingServer(true);
+      const isAvailable = await EnhancedMoodPredictionService.isAPIAvailable();
+      setMlServerAvailable(isAvailable);
+    } catch (error) {
+      console.error('Error checking ML server status:', error);
+      setMlServerAvailable(false);
+    } finally {
+      setIsCheckingServer(false);
+    }
   };
   
   const saveSettings = async () => {
@@ -89,6 +207,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         autoPlayEnabled,
         highQualityStreaming,
         showSensorData,
+        useMLModel,
       };
       
       await AsyncStorage.setItem('userSettings', JSON.stringify(settings));
@@ -150,6 +269,38 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const handleToggleSensorData = (value: boolean) => {
     setShowSensorData(value);
     saveSettings();
+  };
+  
+  const handleToggleMLModel = async (value: boolean) => {
+    setUseMLModel(value);
+    
+    // Update the EnhancedMoodPredictionService settings
+    const newMethod = value ? 'ai-model' : 'local';
+    await EnhancedMoodPredictionService.setPredictionMethod(newMethod);
+    
+    // If we're turning on ML model, check if the server is available
+    if (value && !mlServerAvailable) {
+      checkMLServerStatus();
+    }
+    
+    saveSettings();
+  };
+  
+  const handleSaveApiEndpoint = async () => {
+    try {
+      await AsyncStorage.setItem('ml_api_url', apiEndpoint);
+      setShowApiModal(false);
+      
+      // Check if the new endpoint is working
+      checkMLServerStatus();
+    } catch (error) {
+      console.error('Error saving API endpoint:', error);
+      Alert.alert('Error', 'Failed to save API endpoint');
+    }
+  };
+  
+  const openApiEndpointModal = () => {
+    setShowApiModal(true);
   };
   
   const handleClearCache = async () => {

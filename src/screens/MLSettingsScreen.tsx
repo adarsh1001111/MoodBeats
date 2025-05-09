@@ -278,6 +278,14 @@ const MLSettingsScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       <TouchableOpacity
+        style={styles.mlButton}
+        onPress={() => navigation.navigate('MoodAnalysis', { useML: true })}
+      >
+        <Ionicons name="pulse-outline" size={20} color="#fff" />
+        <Text style={styles.copyButtonText}>Analyze Mood with Both ML Models</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
         style={styles.copyButton}
         onPress={copyFilesToDevice}
       >
@@ -393,12 +401,23 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     lineHeight: 18,
   },
+  mlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#009688',
+    margin: 16,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 4,
+  },
   copyButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#6200ea',
     margin: 16,
+    marginTop: 8,
     padding: 12,
     borderRadius: 4,
   },
